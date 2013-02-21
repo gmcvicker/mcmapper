@@ -107,8 +107,8 @@ void chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset,
   found_offset = FALSE;
 
   for(i = 0; i < chr_tab->n_chr; i++) {
-    if(offset > chr_tab->offset[i]) {
-      c->start = offset - chr_tab->offset[i];
+    if(offset >= chr_tab->offset[i]) {
+      c->start = offset - chr_tab->offset[i] + 1;
       c->end = c->start;
       c->strand = STRAND_FWD;
       c->chr = &chr_tab->chr_array[i];

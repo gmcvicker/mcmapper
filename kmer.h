@@ -2,7 +2,7 @@
 #define __KMER_H__
 
 
-#define KMER_MAX_LEN 32
+#define KMER_MAX_LEN 15
 
 unsigned int kmer_num_kmers(int kmer_len);
 unsigned int kmer_nucs_to_id(unsigned char *nucs, int kmer_len);

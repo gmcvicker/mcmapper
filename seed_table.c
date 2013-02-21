@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <limits.h>
 
 #include "util.h"
 #include "kmer.h"
@@ -9,97 +10,128 @@
 /**
  * Creates a new SeedTable data structure and returns it
  */
-SeedTable *seed_table_new(int seed_len, size_t buf_sz) {
+SeedTable *seed_table_new(int seed_len) {
   SeedTable *seed_tab;
 
   seed_tab = my_new(SeedTable, 1);
   seed_tab->seed_len = seed_len;
   seed_tab->n_seed = kmer_num_kmers(seed_len);
 
-  seed_tab->n_seed_match = my_new0(unsigned int, seed_tab->n_seed);
+  /* number of matches for each seed (init to 0) */
+  seed_tab->n_match = my_new0(unsigned int, seed_tab->n_seed);
 
-  /* linked lists of seed matches, one for each possible seed */
-  seed_tab->seed_match = my_new0(SeedMatch *, seed_tab->n_seed);
+  /* arrays of seed matches (init to NULL) */
+  seed_tab->match = my_new0(unsigned int *, seed_tab->n_seed);
 
-  /* allocate memory for seed matches */
-  fprintf(stderr, "allocating buffer for seed matches: %lu x %lu"
-	  " = %lu bytes\n", sizeof(SeedMatch), buf_sz,  
-	  buf_sz*sizeof(SeedMatch));
+  /* number of matches that have actually been added */
+  seed_tab->cur = my_new0(unsigned int, seed_tab->n_seed);
+
   seed_tab->total_match = 0;
-  seed_tab->seed_match_buf = my_new(SeedMatch, buf_sz);
-  seed_tab->seed_match_buf_sz = buf_sz;
+  seed_tab->match_buf = NULL;
   
   return seed_tab;
 }
 
 
 void seed_table_free(SeedTable *seed_tab) {
-  unsigned int i;
-  SeedMatch *match, *prev_match;
-
   /* free seed matches */
-  for(i = 0; i < seed_tab->n_seed; i++) {
-    match = seed_tab->seed_match[i];
-
-    while(match) {
-      prev_match = match->prev;
-      my_free(match);
-      match = prev_match;
-    }
-  }
-
-  my_free(seed_tab->n_seed_match);
-  my_free(seed_tab->seed_match);
-
-  my_free(seed_tab->seed_match_buf);
+  my_free(seed_tab->match_buf);
+  my_free(seed_tab->match);
+  my_free(seed_tab->n_match);
+  my_free(seed_tab->cur);
 
   my_free(seed_tab);
 }
 
 
 
+/**
+ * Counts a seed match, but does not actually add its location
+ * to the seed table
+ */
+void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs) {
+  unsigned int kmer_id;
+  kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
+  /* increment number of matches to this kmer */
+
+  if(seed_tab->n_match[kmer_id] == UINT_MAX) {
+    my_err("%s:%d maximum number of seed matches (%u) exceeded for kmer %u",
+	   __FILE__, __LINE__, UINT_MAX, kmer_id);
+  }
+  seed_tab->n_match[kmer_id] += 1;
+  seed_tab->total_match += 1;
+}
+
 
 /**
- * Converts provided array of nucleotides to a kmer_id, and adds a 
- * seed match to the provided seed table.
+ * initializes memory for saving genomic locations of matches
+ */
+void seed_tab_init_match_mem(SeedTable *seed_tab) {
+  unsigned int i;
+  long idx;
+
+
+  /* allocate enough memory to hold all matches */
+  seed_tab->match_buf = my_new(unsigned int, seed_tab->total_match);
+
+  /* each match array points to a different location in the buffer */
+  idx = 0;
+  for(i = 0; i < seed_tab->n_seed; i++) {
+    if(seed_tab->n_match[i]) {
+      seed_tab->match[i] = &seed_tab->match_buf[idx];
+      /* advance ptr by number of matches */
+      idx += seed_tab->n_match[i];
+    } else {
+      seed_tab->match[i] = NULL;
+    }
+  }
+}
+
+
+/**
+ * Adds location for a seed match to the provided seed table.
  */
 void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 			  unsigned char *nucs) {
-  unsigned int kmer_id;
-  SeedMatch *match;
+  unsigned int kmer_id, i;
+
+  if(seed_tab->match_buf == NULL) {
+    seed_tab_init_match_mem(seed_tab);
+  }
 
   kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
-
-  /* create and init new match data structure,
-   * using memory already allocated in seed match buffer
-   */
-  if(seed_tab->total_match >= seed_tab->seed_match_buf_sz) {
-    my_err("out of buffer space for seed matches\n");
+  /* cur is number of matches already added to array */
+  i = seed_tab->cur[kmer_id];
+  if(i >= seed_tab->n_match[kmer_id]) {
+    my_err("%s:%d: more matches than expected to kmer", __FILE__, __LINE__);
   }
-  match = &seed_tab->seed_match_buf[seed_tab->total_match];
-  seed_tab->total_match += 1;
-  match->offset = offset;
 
-  /* TODO: may not be necessary to save identical adjacent matches
-   * e.g. if seed is AAAAAAAAA, may be no need to record that it
-   * matches to multiple adjacent positions.
-   */
+  /* add genomic position (offset) to match array */
+  seed_tab->match[kmer_id][i] = offset;
 
-  /* maintain linked list of matches to same seed */
-  match->prev = seed_tab->seed_match[kmer_id];
-  seed_tab->seed_match[kmer_id] = match;
-  seed_tab->n_seed_match[kmer_id] += 1;
+  /* update cur to point to next element of match array */
+  seed_tab->cur[kmer_id] += 1;
 }
 
 
 /**
- * Returns the number of matches to the provided seed
+ * Returns the number of matches to the provided seed and sets provided
+ * pointer to the array of genomic offsets (if the ptr is not NULL).
  */
-unsigned int seed_table_n_match(SeedTable *seed_tab, unsigned char *nucs) {
+unsigned int seed_table_get_matches(SeedTable *seed_tab, 
+				    unsigned char *nucs, 
+				    unsigned int **match_offsets) {
   unsigned int kmer_id;
   kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
-  return seed_tab->n_seed_match[kmer_id];
+
+  if(match_offsets) {
+    *match_offsets = seed_tab->match[kmer_id];
+  }
+  
+  return seed_tab->n_match[kmer_id];
 }
+
+
 
 
 /**
@@ -107,27 +139,21 @@ unsigned int seed_table_n_match(SeedTable *seed_tab, unsigned char *nucs) {
  */
 void seed_table_write(SeedTable *seed_table, gzFile f) {
   unsigned int i, j, magic;
-  SeedMatch *match;
   
   magic = SEED_TABLE_MAGIC;
   util_gzwrite_one(f, magic);
   util_gzwrite_one(f, seed_table->seed_len);
+  util_gzwrite_one(f, seed_table->total_match);
 
+  /* write number of matches to each seed */
   for(i = 0; i < seed_table->n_seed; i++) {
-    /* write number of matches to this seed */
-    util_gzwrite_one(f, seed_table->n_seed_match[i]);
+    util_gzwrite_one(f, seed_table->n_match[i]);
+  }
 
-    /* write offsets for each seed match */
-    match = seed_table->seed_match[i];
-    for(j = 0; j < seed_table->n_seed_match[i]; j++) {
-      if(match == NULL) {
-	my_err("%s:%d: expected %d seed matches, but only got %d",
-	       __FILE__, __LINE__, seed_table->n_seed_match[i], j);
-      }
-
-      util_gzwrite_one(f, match->offset);
-      
-      match = match->prev;
+  /* write offsets for each seed match */
+  for(i = 0; i < seed_table->n_seed; i++) {
+    for(j = 0; j < seed_table->n_match[i]; j++) {
+      util_gzwrite_one(f, seed_table->match[i][j]);
     }
   }
 }
@@ -137,12 +163,11 @@ void seed_table_write(SeedTable *seed_table, gzFile f) {
  * Creates a new SeedTable by reading a binary file
  */
 SeedTable *seed_table_read(const char *filename) {
-  unsigned int i, j;
+  unsigned int i;
   unsigned int magic;
   int seed_len;
   unsigned int total_match;
   SeedTable *seed_tab;
-  SeedMatch *match;
   gzFile f;
   
   f = util_must_gzopen(filename, "rb");
@@ -157,27 +182,33 @@ SeedTable *seed_table_read(const char *filename) {
   util_gzread_one(f, seed_len);
   util_gzread_one(f, total_match);
 
-  seed_tab = seed_table_new(seed_len, total_match);
+  fprintf(stderr, "seed_len: %u, total_match: %u\n",
+	  seed_len, total_match);
+  seed_tab = seed_table_new(seed_len);
+  seed_tab->total_match = total_match;
 
+  fprintf(stderr, "reading seed match table\n");
   for(i = 0; i < seed_tab->n_seed; i++) {
     /* read how many matches to this seed there are */
-    util_gzread_one(f, seed_tab->n_seed_match[i]);
-    
-    for(j = 0; j < seed_tab->n_seed_match[i]; j++) {
-      /* init new match data structure, using memory already allocated
-       * in seed match buffer
-       */
-      if(seed_tab->total_match >= seed_tab->seed_match_buf_sz) {
-	my_err("out of buffer space for seed matches\n");
-      }
-      match = &seed_tab->seed_match_buf[seed_tab->total_match];
-      seed_tab->total_match += 1;
+    util_gzread_one(f, seed_tab->n_match[i]);
+  }
 
-      util_gzread_one(f, match->offset);
-      match->prev = seed_tab->seed_match[i];
-      seed_tab->seed_match[i] = match;
+  /* allocate memory to hold matches */
+  seed_tab_init_match_mem(seed_tab);
+
+  /* read matches */
+  for(i = 0; i < seed_tab->n_seed; i++) {
+    if(seed_tab->n_match[i] > 0) {
+      util_must_gzread(f, seed_tab->match[i], 
+		       seed_tab->n_match[i] * sizeof(unsigned int));
+    }
+
+    if((i % 1000000) == 0) {
+      fprintf(stderr, ".");
     }
   }
+
+  fprintf(stderr, "\n");
 
   gzclose(f);
 

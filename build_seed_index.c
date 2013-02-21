@@ -31,7 +31,32 @@ int has_ambi_code(unsigned char *nucs, int len) {
 
 
 
-void load_seeds(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
+void count_matches(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
+  unsigned int i;
+  
+  /* just call this to verify that chromosome is in table */
+  chr_table_lookup(chr_tab, seq);
+  
+  /* loop over fwd strand of chromosome */
+  fprintf(stderr, "counting seeds\n");
+  for(i = 0; i < seq->len - seed_tab->seed_len + 1; i++) {
+    if(has_ambi_code(&seq->sym[i], seed_tab->seed_len)) {
+      /* TODO: handle ambi codes */
+      continue;
+    }
+    if((i % 1000000) == 0) {
+      fprintf(stderr, ".");
+    }
+    /* count occurance of this seed */
+    seed_table_count_match(seed_tab, &seq->sym[i]);
+  }
+  fprintf(stderr, "\n");
+}
+
+
+
+
+void add_matches(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
   int chr_tab_idx;
   unsigned int i, offset;
   
@@ -46,13 +71,14 @@ void load_seeds(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
       /* TODO: handle ambi codes */
       continue;
     }
-    if((i % 10000) == 0) {
+    if((i % 1000000) == 0) {
       fprintf(stderr, ".");
     }
     seed_table_add_match(seed_tab, offset + i, &seq->sym[i]);
   }
   fprintf(stderr, "\n");
 }
+
 
 
 int main(int argc, char **argv) {
@@ -90,8 +116,7 @@ int main(int argc, char **argv) {
 
   /* create a table to hold seed matches */
   fprintf(stderr, "initializing seed table\n");
-  seed_tab = seed_table_new(seed_len, 
-			    (unsigned long)((float)chr_tab->total_chr_len * 1.1));
+  seed_tab = seed_table_new(seed_len);
 
   /* open an output file to write seed table to */
   if(util_file_exists(out_filename)) {
@@ -101,7 +126,7 @@ int main(int argc, char **argv) {
   out_gzf = util_must_gzopen(out_filename, "wb");
 
   /*
-   * read sequences and add seeds to seed match table
+   * first pass: count number of matches to each seed 
    */
   seq = seq_new();
   for(i = 0; i < n_fasta_files; i++) {
@@ -109,10 +134,26 @@ int main(int argc, char **argv) {
     gzf = util_must_gzopen(fasta_files[i], "rb");
     while(seq_read_fasta_record(seq, gzf)) {
       fprintf(stderr, "%s %ld\n", seq->name, seq->len);
-      load_seeds(chr_tab, seed_tab, seq);
+      fprintf(stderr, "counting seed matches\n");
+      count_matches(chr_tab, seed_tab, seq);
     }
     gzclose(gzf);
   }
+
+  /*
+   * second pass: store location of each match
+   */
+  for(i = 0; i < n_fasta_files; i++) {
+    fprintf(stderr, "reading sequence from file %s\n", fasta_files[i]);
+    gzf = util_must_gzopen(fasta_files[i], "rb");
+    while(seq_read_fasta_record(seq, gzf)) {
+      fprintf(stderr, "%s %ld\n", seq->name, seq->len);
+      fprintf(stderr, "recording seed match positions\n");
+      add_matches(chr_tab, seed_tab, seq);
+    }
+    gzclose(gzf);
+  }
+
   seq_free(seq);
 
   /* write table to file in binary format */
