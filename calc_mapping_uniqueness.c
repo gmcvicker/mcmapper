@@ -46,6 +46,9 @@ typedef struct {
 
 
 
+/**
+ * returns true if provided array of nucleotide contains an ambiguity code
+ */
 int has_ambi_code(unsigned char *nucs, int len) {
   int i;
   for(i = 0; i < len; i++) {
