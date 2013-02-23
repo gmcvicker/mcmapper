@@ -1,0 +1,7 @@
+*.o
+build_seed_index
+calc_mapping_uniqueness
+chromInfo.txt
+seed_idx.*.gz
+test_ambi
+test_kmer
