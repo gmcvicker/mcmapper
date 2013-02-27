@@ -6,7 +6,7 @@ CC=gcc
 # not sure if GLIB will be needed yet or not...
 GLIB_FLAGS=`pkg-config --cflags --libs glib-2.0`
 
-objects=chr_table.o kmer.o seed_table.o ambi.o
+objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o
 
 default: $(objects) build_seed_index calc_mapping_uniqueness test_kmer test_ambi
 
@@ -40,8 +40,6 @@ test_ambi.o: test_ambi.c
 
 test_ambi: $(objects) test_ambi.o
 	$(CC) $(LFLAGS) -o test_ambi test_ambi.o $(objects)
-
-
 
 
 clean:

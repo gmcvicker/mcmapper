@@ -6,23 +6,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "memutil.h"
 #include "util.h"
 #include "err.h"
 #include "seqcoord.h"
 #include "seq.h"
 #include "nuc.h"
 
+#include "ambi.h"
 #include "chr_table.h"
 #include "seed_table.h"
 
-#define MAX_SEED_MATCH 1000
 
-
-
-int has_ambi_code(unsigned char *nucs, int len) {
+int has_n(unsigned char *nucs, int len) {
   int i;
   for(i = 0; i < len; i++) {
-    if(nucs[i] == NUC_N || nuc_is_ambi(nucs[i])) {
+    if(nucs[i] == NUC_N) {
       return TRUE;
     }
   }
@@ -40,10 +39,10 @@ void count_matches(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
   /* loop over fwd strand of chromosome */
   fprintf(stderr, "counting seeds\n");
   for(i = 0; i < seq->len - seed_tab->seed_len + 1; i++) {
-    if(has_ambi_code(&seq->sym[i], seed_tab->seed_len)) {
-      /* TODO: handle ambi codes */
+    if(has_n(&seq->sym[i], seed_tab->seed_len)) {
       continue;
     }
+
     if((i % 1000000) == 0) {
       fprintf(stderr, ".");
     }
@@ -67,8 +66,7 @@ void add_matches(ChrTable *chr_tab, SeedTable *seed_tab, Seq *seq) {
   /* loop over fwd strand of chromosome */
   fprintf(stderr, "loading seeds from fwd strand\n");
   for(i = 0; i < seq->len - seed_tab->seed_len + 1; i++) {
-    if(has_ambi_code(&seq->sym[i], seed_tab->seed_len)) {
-      /* TODO: handle ambi codes */
+    if(has_n(&seq->sym[i], seed_tab->seed_len)) {
       continue;
     }
     if((i % 1000000) == 0) {
@@ -96,8 +94,6 @@ int main(int argc, char **argv) {
 	    argv[0]);
     exit(2);
   }
-
-  fprintf(stderr, "sizeof(unsigned int): %lu\n", sizeof(unsigned int));
   
   
   seed_len = util_parse_long(argv[1]);
@@ -163,7 +159,6 @@ int main(int argc, char **argv) {
 
   chr_table_free(chr_tab);
   seed_table_free(seed_tab);
-
   
   return 0;
 }

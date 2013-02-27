@@ -7,6 +7,7 @@
  * table is correct.
  */
 #define SEED_TABLE_MAGIC 457401295
+#define SEED_TABLE_MAX_UNAMBIG 128
 
 
 typedef struct {
@@ -23,6 +24,13 @@ typedef struct {
 
   /* memory buffer for storing seed matches */
   unsigned int *match_buf;
+
+  unsigned int *tmp_match_buf;
+
+  /* memory buffer for storing unambiguous seeds (parsed
+   * from seeds containing ambiguity codes)
+   */
+  unsigned char **unambig_nucs;
 
 } SeedTable;
 

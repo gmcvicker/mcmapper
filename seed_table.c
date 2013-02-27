@@ -1,17 +1,22 @@
 
 #include <stdio.h>
 #include <limits.h>
+#include <string.h>
 
+#include "nuc.h"
+#include "ambi.h"
 #include "util.h"
 #include "kmer.h"
 #include "memutil.h"
 #include "seed_table.h"
+
 
 /**
  * Creates a new SeedTable data structure and returns it
  */
 SeedTable *seed_table_new(int seed_len) {
   SeedTable *seed_tab;
+  int i;
 
   seed_tab = my_new(SeedTable, 1);
   seed_tab->seed_len = seed_len;
@@ -28,20 +33,41 @@ SeedTable *seed_table_new(int seed_len) {
 
   seed_tab->total_match = 0;
   seed_tab->match_buf = NULL;
+
+  /* buffer to hold unambiguous nucleotide arrays */
+  seed_tab->unambig_nucs = my_new(unsigned char *, SEED_TABLE_MAX_UNAMBIG);
+  for(i = 0; i < SEED_TABLE_MAX_UNAMBIG; i++) {
+    seed_tab->unambig_nucs[i] = my_new(unsigned char, seed_tab->seed_len);
+  }
   
   return seed_tab;
 }
 
-
+/**
+ * Frees memory allocated for seed table
+ */
 void seed_table_free(SeedTable *seed_tab) {
+  int i;
+  
   /* free seed matches */
   my_free(seed_tab->match_buf);
+
+  if(seed_tab->tmp_match_buf) {
+    my_free(seed_tab->tmp_match_buf);
+  }
   my_free(seed_tab->match);
   my_free(seed_tab->n_match);
   my_free(seed_tab->cur);
+  
+  for(i = 0; i < SEED_TABLE_MAX_UNAMBIG; i++) {
+    my_free(seed_tab->unambig_nucs[i]);
+  }
+  my_free(seed_tab->unambig_nucs);
 
   my_free(seed_tab);
 }
+
+
 
 
 
@@ -51,16 +77,42 @@ void seed_table_free(SeedTable *seed_tab) {
  */
 void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs) {
   unsigned int kmer_id;
-  kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
-  /* increment number of matches to this kmer */
+  unsigned char **unambig;
+  int n_unambig, i;
 
-  if(seed_tab->n_match[kmer_id] == UINT_MAX) {
-    my_err("%s:%d maximum number of seed matches (%u) exceeded for kmer %u",
-	   __FILE__, __LINE__, UINT_MAX, kmer_id);
+  /* convert seeds with ambiguity codes to all possible 
+   * non-ambiguous seqs 
+   */
+  if(ambi_has_ambi(nucs, seed_tab->seed_len)) {
+      n_unambig = ambi_resolve(nucs, seed_tab->seed_len,
+			       seed_tab->unambig_nucs, 
+			       SEED_TABLE_MAX_UNAMBIG);
+
+      if(n_unambig == 0) {
+	fprintf(stderr, "seed contains too many ambiguous nucleotides");
+	return;
+      }
+      unambig = seed_tab->unambig_nucs;
+  } else {
+    /* no ambiguous nucleotides, just use original seed */
+    unambig = &nucs;
+    n_unambig = 1;
   }
-  seed_tab->n_match[kmer_id] += 1;
-  seed_tab->total_match += 1;
+  for(i = 0; i < n_unambig; i++) {
+    kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
+    /* increment number of matches to this kmer */
+
+    if(seed_tab->n_match[kmer_id] == UINT_MAX) {
+      my_err("%s:%d maximum number of seed matches (%u) "
+	     "exceeded for kmer %u", __FILE__, __LINE__, 
+	     UINT_MAX, kmer_id);
+    }
+    seed_tab->n_match[kmer_id] += 1;
+    seed_tab->total_match += 1;
+  }
 }
+
+
 
 
 /**
@@ -69,11 +121,16 @@ void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs) {
 void seed_tab_init_match_mem(SeedTable *seed_tab) {
   unsigned int i;
   long idx;
-
+  char *mem_str;
 
   /* allocate enough memory to hold all matches */
-  seed_tab->match_buf = my_new(unsigned int, seed_tab->total_match);
+  mem_str = util_long_to_comma_str(seed_tab->total_match * 
+				   sizeof(unsigned int));
+  fprintf(stderr, "allocating %s bytes memory to hold seed matches\n", 
+	  mem_str);
+  my_free(mem_str);
 
+  seed_tab->match_buf = my_new(unsigned int, seed_tab->total_match);
   /* each match array points to a different location in the buffer */
   idx = 0;
   for(i = 0; i < seed_tab->n_seed; i++) {
@@ -93,24 +150,48 @@ void seed_tab_init_match_mem(SeedTable *seed_tab) {
  */
 void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 			  unsigned char *nucs) {
-  unsigned int kmer_id, i;
+  unsigned int kmer_id, i, j;
+  int n_unambig;
+  unsigned char **unambig;
 
   if(seed_tab->match_buf == NULL) {
     seed_tab_init_match_mem(seed_tab);
   }
 
-  kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
-  /* cur is number of matches already added to array */
-  i = seed_tab->cur[kmer_id];
-  if(i >= seed_tab->n_match[kmer_id]) {
-    my_err("%s:%d: more matches than expected to kmer", __FILE__, __LINE__);
+  /* convert seeds with ambiguity codes to all possible 
+   * non-ambiguous seqs 
+   */
+  if(ambi_has_ambi(nucs, seed_tab->seed_len)) {
+      n_unambig = ambi_resolve(nucs, seed_tab->seed_len,
+			       seed_tab->unambig_nucs, 
+			       SEED_TABLE_MAX_UNAMBIG);
+
+      if(n_unambig == 0) {
+	fprintf(stderr, "seed contains too many ambiguous nucleotides");
+	return;
+      }
+      unambig = seed_tab->unambig_nucs;
+  } else {
+    /* no ambiguous nucleotides, just use original seed */
+    unambig = &nucs;
+    n_unambig = 1;
   }
+  for(i = 0; i < n_unambig; i++) {
+    kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
 
-  /* add genomic position (offset) to match array */
-  seed_tab->match[kmer_id][i] = offset;
+    /* cur is number of matches already added to array */
+    j = seed_tab->cur[kmer_id];
+    if(j >= seed_tab->n_match[kmer_id]) {
+      my_err("%s:%d: more matches than expected to kmer", 
+	     __FILE__, __LINE__);
+    }
 
-  /* update cur to point to next element of match array */
-  seed_tab->cur[kmer_id] += 1;
+    /* add genomic position (offset) to match array */
+    seed_tab->match[kmer_id][j] = offset;
+
+    /* update cur to point to next element of match array */
+    seed_tab->cur[kmer_id] += 1;
+  }
 }
 
 
@@ -121,13 +202,71 @@ void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 unsigned int seed_table_get_matches(SeedTable *seed_tab, 
 				    unsigned char *nucs, 
 				    unsigned int **match_offsets) {
-  unsigned int kmer_id;
+  unsigned int kmer_id, n_match, i, n_so_far;
+  int n_unambig;
+  unsigned char **unambig;
+
+  if(ambi_has_ambi(nucs, seed_tab->seed_len)) {
+    /* this seed contains ambiguous nucleotides. convert
+     * to all possible seeds containing non-ambiguous nucleotides.
+     */
+    n_unambig = ambi_resolve(nucs, seed_tab->seed_len,
+			     seed_tab->unambig_nucs, 
+			     SEED_TABLE_MAX_UNAMBIG);
+    
+    if(n_unambig == 0) {
+      fprintf(stderr, "seed contains too many ambiguous nucleotides");
+      return 0;
+    }
+    unambig = seed_tab->unambig_nucs;
+
+    /*
+     * need to concatenate all matches together into temporary buffer
+     * free old buffer if allocated
+     */
+    if(seed_tab->tmp_match_buf) {
+      my_free(seed_tab->tmp_match_buf);
+    }
+    /* count total number of matches */
+    n_match = 0;
+    for(i = 0; i < n_unambig; i++) {
+      kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
+      n_match += seed_tab->n_match[kmer_id];
+    }
+    
+    if(match_offsets) {
+      if(n_match > 0) {
+	seed_tab->tmp_match_buf = my_new(unsigned int, n_match);
+      }
+
+      /* fprintf(stderr, "combining %u matches from %u unambig seqs\n", */
+      /* 	      n_match, n_unambig); */
+
+      n_so_far = 0;
+      for(i = 0; i < n_unambig; i++) {
+	kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
+	
+	if(seed_tab->n_match[kmer_id] > 0) {
+	  /* copy matches for this unambiguous seed into temp buffer */
+	  memcpy(&seed_tab->tmp_match_buf[n_so_far], 
+		 seed_tab->match[kmer_id],
+		 seed_tab->n_match[kmer_id] * sizeof(unsigned int));
+	  n_so_far += seed_tab->n_match[kmer_id];
+	}
+      }
+      *match_offsets = seed_tab->tmp_match_buf;
+    }
+      
+    return n_match;
+  }
+  
+  /* there were no ambiguous nucleotides, just use original seed */
   kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
 
   if(match_offsets) {
     *match_offsets = seed_tab->match[kmer_id];
   }
-  
+
   return seed_tab->n_match[kmer_id];
 }
 
@@ -197,6 +336,8 @@ SeedTable *seed_table_read(const char *filename) {
   seed_tab_init_match_mem(seed_tab);
 
   /* read matches */
+
+  fprintf(stderr, "reading seed matches\n");
   for(i = 0; i < seed_tab->n_seed; i++) {
     if(seed_tab->n_match[i] > 0) {
       util_must_gzread(f, seed_tab->match[i], 
