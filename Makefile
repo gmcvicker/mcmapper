@@ -6,9 +6,9 @@ CC=gcc
 # not sure if GLIB will be needed yet or not...
 GLIB_FLAGS=`pkg-config --cflags --libs glib-2.0`
 
-objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o
+objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o fastq.o
 
-default: $(objects) build_seed_index calc_mapping_uniqueness test_kmer test_ambi
+default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq test_kmer test_ambi
 
 $(objects): %.o: %.c %.h
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -21,11 +21,20 @@ build_seed_index: $(objects) build_seed_index.o
 	$(CC) $(LFLAGS) -o build_seed_index build_seed_index.o $(objects)
 
 
+
+
 calc_mapping_uniqueness.o: calc_mapping_uniqueness.c
 	$(CC) -c $(CFLAGS) -o calc_mapping_uniqueness.o calc_mapping_uniqueness.c
 
 calc_mapping_uniqueness: $(objects) calc_mapping_uniqueness.o
 	$(CC) $(LFLAGS) -o calc_mapping_uniqueness calc_mapping_uniqueness.o $(objects)
+
+
+map_fastq.o: map_fastq.c
+	$(CC) -c $(CFLAGS) -o map_fastq.o map_fastq.c
+
+map_fastq: $(objects) map_fastq.o
+	$(CC) $(LFLAGS) -o map_fastq map_fastq.o $(objects)
 
 
 test_kmer.o: test_kmer.c
@@ -43,4 +52,4 @@ test_ambi: $(objects) test_ambi.o
 
 
 clean:
-	rm -f $(objects) build_seed_index test_kmer test_ambi calc_mapping_uniqueness
+	rm -f $(objects) build_seed_index test_kmer test_ambi calc_mapping_uniqueness map_fastq

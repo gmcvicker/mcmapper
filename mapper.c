@@ -204,10 +204,6 @@ void mapper_map_one_read(SeedTable *seed_tab, unsigned char *genome_nucs,
 
   align_read(genome_nucs, genome_len, read, STRAND_FWD);
 
-  if(read->map_code == MAP_CODE_NONE) {
-    my_err("read should map once\n");
-  }
-
   if(read->map_code == MAP_CODE_NONE || read->map_code == MAP_CODE_UNIQUE) {
     /* try to align rev strand of read to genome */
     get_best_seed(seed_tab, read->rev_nucs, read->len,
@@ -220,42 +216,6 @@ void mapper_map_one_read(SeedTable *seed_tab, unsigned char *genome_nucs,
   }
 }
 
-
-/**
- * outputs information about a mapped read to stdout
- */
-void mapper_write_read(ChrTable *chr_tab, MapRead *read) {
-  char read_str[1024];
-  SeqCoord c;
-
-  if((read->len + 1) > sizeof(read_str)) {
-    my_err("%s:%d: read length too long for buffer", __FILE__, __LINE__);
-  }
-
-  if((read->map_code == MAP_CODE_MULTI) || 
-     (read->map_code == MAP_CODE_UNIQUE)) {
-    /* read mapped somewhere */
-    if(read->map_strand == STRAND_FWD) {
-      nuc_ids_to_str(read_str, read->fwd_nucs, read->len);
-    } else if(read->map_strand == STRAND_REV) {
-      nuc_ids_to_str(read_str, read->rev_nucs, read->len);
-    } else {
-      my_err("%s:%d: unknown strand", __FILE__, __LINE__);
-    }
-    
-    /* convert offset to sequence coordinate */
-    chr_table_offset_to_coord(chr_tab, read->map_offset, &c);
-
-    fprintf(stdout, "%s %s %ld %c %d\n", 
-	    read_str, c.chr->name, c.start, 
-	    strand_to_char(read->map_strand), read->map_code);
-  } else {
-    /* read did not map anywhere, use fwd strand of read when reporting */
-    nuc_ids_to_str(read_str, read->fwd_nucs, read->len);
-
-    fprintf(stdout, "%s NA NA . %d\n", read_str, read->map_code);
-  }
-}
 
 
 

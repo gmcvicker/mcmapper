@@ -25,7 +25,8 @@ void chr_table_write(FILE *f, ChrTable *chr_tab);
 void chr_table_free(ChrTable *chr_tab);
 
 int chr_table_lookup(ChrTable *chr_tab, Seq *seq);
-void chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset, 
-			       SeqCoord *c);
+
+int chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset, 
+			      SeqCoord *c);
 
 #endif

@@ -98,11 +98,13 @@ int chr_table_lookup(ChrTable *chr_tab, Seq *seq) {
 
 /**
  * Converts an integer offset to a sequence coordinate. Populates
- * provided SeqCoord data structure (does not create a new one).
+ * provided SeqCoord data structure (does not create a new one),
+ * with start, end and chromosome. Returns index of chromosome
+ * in chr_tab->chr_array.
  */
-void chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset, 
-			       SeqCoord *c) {
-  int i, found_offset;
+int chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset, 
+			      SeqCoord *c) {
+  int i, found_offset, chr_idx;
   
   found_offset = FALSE;
 
@@ -114,6 +116,7 @@ void chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset,
       c->chr = &chr_tab->chr_array[i];
       c->seqname = NULL;
       found_offset = TRUE;
+      chr_idx = i;
     }
   }
 
@@ -125,5 +128,7 @@ void chr_table_offset_to_coord(ChrTable *chr_tab, unsigned int offset,
     my_err("%s:%d: invalid offset %d implies position past end of chromosome",
 	   __FILE__, __LINE__, offset);
   }
+
+  return chr_idx;
 }
 
