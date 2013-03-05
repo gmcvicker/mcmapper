@@ -13,6 +13,7 @@
 #include "seed_table.h"
 
 
+
 /** 
  * opens one output file for each chromosome, returns aray of output files
  */
@@ -85,8 +86,6 @@ void write_read(gzFile *out_files, ChrTable *chr_tab, MapRead *read) {
 	  read_str, c.chr->name, c.start, 
 	  strand_to_char(read->map_strand), read->map_code);
 
-
-
 }
 
 
@@ -103,9 +102,7 @@ void read_from_fastq_record(MapRead *map_read, FastqRead *fastq_read) {
 
 
 
-void map_reads(gzFile *output_files, gzFile reads_f,
-	       ChrTable *chr_tab, SeedTable *seed_tab, 
-	       unsigned char *genome_nucs) {
+void map_reads(gzFile *output_files, gzFile reads_f, Mapper *mapper) {
   FastqRead fastq_read;
   MapRead map_read;
   long warn_count, n_fastq_rec, n_fastq_err;
@@ -133,10 +130,9 @@ void map_reads(gzFile *output_files, gzFile reads_f,
 
     if(r == FASTQ_ERR) {
       /* this fastq record contains an error */
-
       if(warn_count < FASTQ_MAX_WARN) {
 	warn_count += 1;
-	my_warn("%s:%d: skipping invalid fastq record starting on line %ld:\n", 
+	my_warn("%s:%d: skipping invalid fastq record on line %ld:\n", 
 		__FILE__, __LINE__, line_num);
 	fprintf(stderr, "  %s\n  %s\n  %s\n  %s\n", fastq_read.line1, 
 		fastq_read.line2, fastq_read.line3, fastq_read.line4);
@@ -154,8 +150,7 @@ void map_reads(gzFile *output_files, gzFile reads_f,
       }
 
       /* try to map this read to genome */
-      mapper_map_one_read(seed_tab, genome_nucs, chr_tab->total_chr_len, 
-			  &map_read);
+      mapper_map_one_read(mapper, &map_read);
 
       if(map_read.map_code == MAP_CODE_NONE) {
 	/* read does not map to genome */
@@ -166,11 +161,9 @@ void map_reads(gzFile *output_files, gzFile reads_f,
 	n_map_multi += 1;
       }
       else if(map_read.map_code == MAP_CODE_UNIQUE) {
-	/* read maps to single genomic location */
+	/* read maps to single genomic location, output mapped read to file */
 	n_map_uniq += 1;
-
-	/* output mapped read to file */
-	write_read(output_files, chr_tab, &map_read);
+	write_read(output_files, mapper->chr_tab, &map_read);
       }
       else {
 	my_err("%s:%d: unknown mapping code", __FILE__, __LINE__);
@@ -195,25 +188,27 @@ void map_reads(gzFile *output_files, gzFile reads_f,
 int main(int argc, char **argv) {
   char **fasta_files, *reads_file, *seed_index_file;
   char *chrom_info_file, *output_dir;
-  int n_fasta_files, i;
+  int n_fasta_files, i, max_mismatch;
   SeedTable *seed_tab;
   ChrTable *chr_tab;
-  unsigned char *genome_nucs;
+  Mapper *mapper;
   gzFile *out_files, reads_f;
 
-  if(argc < 5) {
+  if(argc < 6) {
     fprintf(stderr, "usage: %s <seed_index_file> <chromInfo.txt> "
-	    "<input_reads.fq.gz> <output_dir> <ref_chr1.fa.gz> [<ref_chr2.fa.gz [...]]\n",
+	    "<max_mismatch> <input_reads.fq.gz> <output_dir> "
+	    "<ref_chr1.fa.gz> [<ref_chr2.fa.gz [...]]\n",
 	    argv[0]);
     exit(2);
   }
   
   seed_index_file = argv[1];
   chrom_info_file = argv[2];
-  reads_file = argv[3];
-  output_dir = argv[4];
-  fasta_files = &argv[5];
-  n_fasta_files = argc - 5;
+  max_mismatch = util_parse_long(argv[3]);
+  reads_file = argv[4];
+  output_dir = argv[5];
+  fasta_files = &argv[6];
+  n_fasta_files = argc - 6;
   
   chr_tab = chr_table_read(chrom_info_file);
 
@@ -223,20 +218,20 @@ int main(int argc, char **argv) {
   fprintf(stderr, "reading seed index\n");
   seed_tab = seed_table_read(seed_index_file);
 
-  fprintf(stderr, "reading genome sequence\n");
-  genome_nucs = mapper_read_seqs(chr_tab, fasta_files, n_fasta_files);
+  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files,
+		       max_mismatch);
 
   fprintf(stderr, "mapping reads\n");
-  map_reads(out_files, reads_f, chr_tab, seed_tab, genome_nucs);
+  map_reads(out_files, reads_f, mapper);
 
   for(i = 0; i < chr_tab->n_chr; i++) {
     gzclose(out_files[i]);
   }
 
   gzclose(reads_f);
-  my_free(genome_nucs);
   seed_table_free(seed_tab);
   chr_table_free(chr_tab);
+  mapper_free(mapper);
 
   return 0;
 }

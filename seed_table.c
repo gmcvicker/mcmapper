@@ -51,10 +51,6 @@ void seed_table_free(SeedTable *seed_tab) {
   
   /* free seed matches */
   my_free(seed_tab->match_buf);
-
-  if(seed_tab->tmp_match_buf) {
-    my_free(seed_tab->tmp_match_buf);
-  }
   my_free(seed_tab->match);
   my_free(seed_tab->n_match);
   my_free(seed_tab->cur);
@@ -196,79 +192,59 @@ void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 
 
 /**
- * Returns the number of matches to the provided seed and sets provided
- * pointer to the array of genomic offsets (if the ptr is not NULL).
+ * sets attributes of the provided SeedMatch data structure to give
+ * the total number of matches and kmer id(s) for the provided
+ * nucleotide array. The kmer ids can be used to index matches in
+ * the seed match table. There can be multiple kmer ids, because the
+ * nucleotides are allowed to contain ambiguity codes.
  */
-unsigned int seed_table_get_matches(SeedTable *seed_tab, 
-				    unsigned char *nucs, 
-				    unsigned int **match_offsets) {
-  unsigned int kmer_id, n_match, i, n_so_far;
-  int n_unambig;
+void seed_table_lookup(SeedTable *seed_tab, unsigned char *nucs, 
+		       SeedMatch *seed_match) {
+  unsigned int kmer_id, i;
   unsigned char **unambig;
 
   if(ambi_has_ambi(nucs, seed_tab->seed_len)) {
     /* this seed contains ambiguous nucleotides. convert
      * to all possible seeds containing non-ambiguous nucleotides.
      */
-    n_unambig = ambi_resolve(nucs, seed_tab->seed_len,
-			     seed_tab->unambig_nucs, 
-			     SEED_TABLE_MAX_UNAMBIG);
+    seed_match->n_kmer = ambi_resolve(nucs, seed_tab->seed_len,
+				      seed_tab->unambig_nucs,
+				      SEED_TABLE_MAX_UNAMBIG);
     
-    if(n_unambig == 0) {
-      fprintf(stderr, "seed contains too many ambiguous nucleotides");
-      return 0;
+    if(seed_match->n_kmer == 0) {
+      my_warn("seed contains too many ambiguous nucleotides");
     }
     unambig = seed_tab->unambig_nucs;
 
-    /*
-     * need to concatenate all matches together into temporary buffer
-     * free old buffer if allocated
-     */
-    if(seed_tab->tmp_match_buf) {
-      my_free(seed_tab->tmp_match_buf);
-    }
-    /* count total number of matches */
-    n_match = 0;
-    for(i = 0; i < n_unambig; i++) {
+    /* count total number of matches, set kmer ids */
+    seed_match->n_match = 0;
+    for(i = 0; i < seed_match->n_kmer; i++) {
       kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
-      n_match += seed_tab->n_match[kmer_id];
+      seed_match->n_match += seed_tab->n_match[kmer_id];
+      seed_match->kmer_ids[i] = kmer_id;
     }
-    
-    if(match_offsets) {
-      if(n_match > 0) {
-	seed_tab->tmp_match_buf = my_new(unsigned int, n_match);
-      }
-
-      /* fprintf(stderr, "combining %u matches from %u unambig seqs\n", */
-      /* 	      n_match, n_unambig); */
-
-      n_so_far = 0;
-      for(i = 0; i < n_unambig; i++) {
-	kmer_id = kmer_nucs_to_id(unambig[i], seed_tab->seed_len);
-	
-	if(seed_tab->n_match[kmer_id] > 0) {
-	  /* copy matches for this unambiguous seed into temp buffer */
-	  memcpy(&seed_tab->tmp_match_buf[n_so_far], 
-		 seed_tab->match[kmer_id],
-		 seed_tab->n_match[kmer_id] * sizeof(unsigned int));
-	  n_so_far += seed_tab->n_match[kmer_id];
-	}
-      }
-      *match_offsets = seed_tab->tmp_match_buf;
-    }
-      
-    return n_match;
+  } else {
+    /* there were no ambiguous nucleotides, just use original seed */
+    kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
+    seed_match->n_match = seed_tab->n_match[kmer_id];
+    seed_match->n_kmer = 1;
+    seed_match->kmer_ids[0] = kmer_id;
   }
-  
-  /* there were no ambiguous nucleotides, just use original seed */
-  kmer_id = kmer_nucs_to_id(nucs, seed_tab->seed_len);
-
-  if(match_offsets) {
-    *match_offsets = seed_tab->match[kmer_id];
-  }
-
-  return seed_tab->n_match[kmer_id];
 }
+
+
+
+/**
+ * Returns the total number of genomic matches for the provided nucleotide
+ * array
+ */
+unsigned int seed_table_n_match(SeedTable *seed_tab, unsigned char *nucs) {
+  SeedMatch match;
+
+  seed_table_lookup(seed_tab, nucs, &match);
+  return match.n_match;
+}
+
 
 
 

@@ -15,6 +15,7 @@
 #include "mapper.h"
 
 
+
 /**
  * Given a read, identifies the seed with the fewest number of
  * matches, genome-wide. Returns the number of matches and sets the
@@ -22,7 +23,6 @@
  */
 void get_best_seed(SeedTable *seed_tab, unsigned char *read_nucs,
 		   unsigned int read_len, MapSeed *seed) {
-
   unsigned int i, n_match, lowest_n_match, lowest_idx;
 
   if(seed_tab->seed_len > read_len) {
@@ -31,12 +31,12 @@ void get_best_seed(SeedTable *seed_tab, unsigned char *read_nucs,
   }
 
   /* start with seed at beginning of read */
-  lowest_n_match = seed_table_get_matches(seed_tab, read_nucs, NULL);
+  lowest_n_match = seed_table_n_match(seed_tab, read_nucs);
   lowest_idx = 0;
 
   /* look for seed with lowest number of matches */
   for(i = 1; i < read_len - seed_tab->seed_len + 1; i++) {
-    n_match = seed_table_get_matches(seed_tab, &read_nucs[i], NULL);
+    n_match = seed_table_n_match(seed_tab, &read_nucs[i]);
 
     if(n_match < lowest_n_match) {
       lowest_n_match = n_match;
@@ -46,26 +46,22 @@ void get_best_seed(SeedTable *seed_tab, unsigned char *read_nucs,
 
   /* retrieve genomic match locations for seed with lowest matches */
   seed->read_idx = lowest_idx;
-  seed->n_match = seed_table_get_matches(seed_tab, &read_nucs[lowest_idx], 
-					 &seed->matches);
+  seed_table_lookup(seed_tab, &read_nucs[lowest_idx], &seed->match);
 }
 
 
-void write_match(FILE *f, unsigned char *genome_nucs, MapRead *read, 
-		 MapSeed *seed, unsigned int match_idx, char strand) {
+void write_match(FILE *f, unsigned char *genome_nucs, SeedTable *seed_tab,
+		 MapRead *read, MapSeed *seed, unsigned int seed_offset, 
+		 char strand) {
 
   char genome_str[1024];
   char seed_str[1024];
   char fwd_read_str[1024];
   char rev_read_str[1024];
-  long seed_offset,  read_genome_start, i;
+  long read_genome_start;
+  int i;
 
-  seed_offset = (long)seed->matches[match_idx];
-
-  fprintf(stderr, "match_idx: %u, matches[%u]: %u, "
-  	  "seed_offset: %ld, strand=%d\n",
-  	  match_idx, match_idx, seed->matches[match_idx],
-  	  seed_offset, strand);
+  fprintf(stderr, "seed_offset: %u, strand=%d\n", seed_offset, strand);
 
   if(strand == STRAND_FWD) {
     nuc_ids_to_str(seed_str, &read->fwd_nucs[seed->read_idx], seed->len);
@@ -75,10 +71,10 @@ void write_match(FILE *f, unsigned char *genome_nucs, MapRead *read,
   nuc_ids_to_str(fwd_read_str, read->fwd_nucs, read->len);
   nuc_ids_to_str(rev_read_str, read->rev_nucs, read->len);
   
-  read_genome_start = seed_offset - seed->read_idx;
+  read_genome_start = (long)seed_offset - seed->read_idx;
   nuc_ids_to_str(genome_str, &genome_nucs[read_genome_start], read->len);
 
-  fprintf(f, "seed_offset: %ld, read_genome_start: %ld\n",
+  fprintf(f, "seed_offset: %u, read_genome_start: %ld\n",
 	  seed_offset, read_genome_start);
   fprintf(f, "fwd_read_str: %s\n", fwd_read_str);
   fprintf(f, "seed_str    : ");
@@ -93,89 +89,96 @@ void write_match(FILE *f, unsigned char *genome_nucs, MapRead *read,
 
 
 
-void align_read(unsigned char *genome_nucs, long genome_len, 
-		MapRead *read, char strand) {  
-  long i, j, genome_seed_start, genome_seed_end;
+void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
+  long k, match_offset, genome_seed_start, genome_seed_end;
   long genome_read_start, genome_read_end;
   unsigned char *read_nucs;
-  MapSeed *seed;
-  int perfect_match;
-
+  unsigned int kmer_id, i, j;
+  int n_mismatch;
 
   if(strand == STRAND_FWD) {
     read_nucs = read->fwd_nucs;
-    seed = &read->fwd_seed;
   }
   else if(strand == STRAND_REV) {
     read_nucs = read->rev_nucs;
-    seed = &read->rev_seed;
   } else {
     read_nucs = NULL;
-    seed = NULL;
     my_err("%s:%d: unknown strand", __FILE__, __LINE__);
   }
 
-  /* try to align starting at each seed */
-  /* currently we allow 0 mismatches */
-  for(i = 0; i < seed->n_match; i++) {
-    perfect_match = TRUE;
+  read->n_mismatch = 0;
 
-    /* get genomic offsets for start / end of read */
-    genome_read_start = (long)seed->matches[i] - (long)seed->read_idx;
-    genome_read_end   = genome_read_start + (long)read->len - 1;
+  /* fprintf(stderr, "seed match has %u kmers\n", seed->match.n_kmer); */
+  
+  /* loop over every kmer for seed (can be >1 because of ambiguity codes) */
+  for(i = 0; i < seed->match.n_kmer; i++) {
 
-    /* genomic offsets of start / end of seed match */
-    genome_seed_start = (long)seed->matches[i];
-    genome_seed_end   = (long)seed->matches[i] + (long)seed->len - 1;
+    /* loop over every genomic match location for this kmer */
+    kmer_id = seed->match.kmer_ids[i];
+    for(j = 0; j < mapper->seed_tab->n_match[kmer_id]; j++) {
+      match_offset = (long)mapper->seed_tab->match[kmer_id][j];
+      n_mismatch = 0;
 
-    if((genome_read_start < 0) || (genome_read_end >= genome_len)) {
-      /* read would overhang end of genome */
-      continue;
-    }
-    
-    /* check that left end of read (before seed) matches genome 
-     * allowing for ambiguity codes
-     */
-    j = 0;
-    while(perfect_match && (j < seed->read_idx)) {
-      if(!ambi_nucs_match(genome_nucs[genome_read_start + j], read_nucs[j])) {
-	perfect_match = FALSE;
+      /* align from where kmer matched, allow up to max_mismatch mismatches */
+
+      /* get genomic offsets for start / end of read */
+      genome_read_start = match_offset - seed->read_idx;
+      genome_read_end   = genome_read_start + read->len - 1;
+
+      /* genomic offsets of start / end of kmer match */
+      genome_seed_start = match_offset;
+      genome_seed_end   = match_offset + (long)seed->len - 1;
+
+      if((genome_read_start < 0) || (genome_read_end >= mapper->genome_len)) {
+	/* read would overhang end of genome */
+	continue;
       }
-      j++;
-    }
+      
+      /* check left end of read (before seed) matches genome, allowing
+       * ambiguity codes
+       */
+      k = 0;
+      while((n_mismatch <= mapper->max_mismatch) && (k < seed->read_idx)) {
+	if(!ambi_nucs_match(mapper->genome_nucs[genome_read_start + k], 
+			    read_nucs[k])) {
+	  n_mismatch += 1;
+	}
+	k++;
+      }
 
-    /* check that right end of read (after seed) matches genome 
-     * allowing for ambiguity codes
-     */
-    j = seed->read_idx + seed->len;
-    while(perfect_match && (j < read->len)) {
-      if(!ambi_nucs_match(genome_nucs[genome_read_start + j], read_nucs[j])) {
-	perfect_match = FALSE;
-      } 
-      j++;
-    }
+      /* check right end of read (after seed) matches genome, allowing
+       * ambiguity codes
+       */
+      k = seed->read_idx + seed->len;
+      while((n_mismatch <= mapper->max_mismatch) && (k < read->len)) {
+	if(!ambi_nucs_match(mapper->genome_nucs[genome_read_start + k], 
+			    read_nucs[k])) {
+	  n_mismatch += 1;
+	} 
+	k++;
+      }
 
-    /* if(perfect_match) { */
-    /*   fprintf(stderr, "MATCH!\n"); */
-    /* } else { */
-    /*   fprintf(stderr, "MISMATCH\n"); */
-    /* } */
-    /* write_match(stderr, genome_nucs, read, seed, i, strand); */
+      if(n_mismatch > mapper->max_mismatch) {
+	/* too many mismatches */
+	continue;
+      }
 
-
-    if(perfect_match) {
       /* read matches! */
+
+      /* write_match(stderr, genome_nucs, read, seed, match_offset, strand); */
       if(read->map_code == MAP_CODE_NONE) {
 	/* first match we have observed */
 	read->map_code = MAP_CODE_UNIQUE;
 	read->map_offset = genome_read_start;
 	read->map_strand = strand;
+	read->n_mismatch = n_mismatch;
       }
       else if(read->map_code == MAP_CODE_UNIQUE) {
-	/* second match we have observed */
+	/* second match we have observed, can quit now since we
+	 * know this is not a uniquely-mapping read
+	 */
 	read->map_code = MAP_CODE_MULTI;
-	/* fprintf(stderr, "  read matches multiple times\n"); */
-	break;
+	return;
       }
       else {
 	my_err("%s:%d: expected mapping code to be NONE or UNIQUE",
@@ -187,32 +190,61 @@ void align_read(unsigned char *genome_nucs, long genome_len,
 
 
 
-void mapper_map_one_read(SeedTable *seed_tab, unsigned char *genome_nucs,
-			 long genome_len, MapRead *read) {
-    
-  /* find best seed (one with fewest matches) on fwd and rev strands */
-  read->fwd_seed.len = seed_tab->seed_len;
-  read->rev_seed.len = seed_tab->seed_len;
+void mapper_map_perfect(Mapper *mapper, MapRead *read) {
+  MapSeed seed;
+  
+  seed.len = mapper->seed_tab->seed_len;
+
+  /* find best seed (one with fewest matches) on fwd strands */
   read->map_code = MAP_CODE_NONE;
 
   /* try to align fwd strand of read to genome */
-  get_best_seed(seed_tab, read->fwd_nucs, read->len,
-		&read->fwd_seed);
+  get_best_seed(mapper->seed_tab, read->fwd_nucs, read->len, &seed);
 
   /* fprintf(stderr, "using fwd seed from position %u with %u matches\n", */
-  /*  	  read->fwd_seed.read_idx, read->fwd_seed.n_match); */
+  /*   	  seed.read_idx, seed.match.n_match); */
 
-  align_read(genome_nucs, genome_len, read, STRAND_FWD);
+  align_read(mapper, read, &seed, STRAND_FWD);
 
   if(read->map_code == MAP_CODE_NONE || read->map_code == MAP_CODE_UNIQUE) {
-    /* try to align rev strand of read to genome */
-    get_best_seed(seed_tab, read->rev_nucs, read->len,
-		  &read->rev_seed);
+
+    /* now try to align read to rev strand of read to genome */
+    get_best_seed(mapper->seed_tab, read->rev_nucs, read->len, &seed);
 
     /* fprintf(stderr, "using rev seed from position %u with %u matches\n", */
-    /* 	    read->rev_seed.read_idx, read->rev_seed.n_match); */
+    /*  	    seed.read_idx, seed.match.n_match); */
 
-    align_read(genome_nucs, genome_len, read, STRAND_REV);
+    align_read(mapper, read, &seed, STRAND_REV);
+  }
+}
+
+
+
+
+void mapper_map_one_mismatch(Mapper *mapper, MapRead *read) {
+  /** TODO **/
+
+}
+
+
+
+void mapper_map_one_read(Mapper *mapper, MapRead *read) {
+  read->has_n = nuc_ids_have_n(read->fwd_nucs, read->len);
+  if(read->has_n) {
+    /* do not map reads that contain Ns */
+    read->map_code = MAP_CODE_NONE;
+    return;
+  }
+
+  if(mapper->max_mismatch == 0) {
+    mapper_map_perfect(mapper, read);
+  }
+  else if(mapper->max_mismatch == 1) {
+    mapper_map_one_mismatch(mapper, read);
+  }
+  else {
+    my_err("%s:%d: mapping allowing %d mismatches not currently implemented",
+	   __FILE__, __LINE__, mapper->max_mismatch);
   }
 }
 
@@ -270,3 +302,41 @@ unsigned char *mapper_read_seqs(ChrTable *chr_tab, char **fasta_files,
 }
 
 
+
+
+/**
+ * Allocates memory for and creates a new Mapper data structure
+ */
+Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab, 
+		    char **fasta_files, int n_fasta_files,
+		    int max_mismatch) {
+  Mapper *mapper;
+
+  mapper = my_new(Mapper, 1);
+  mapper->seed_tab = seed_tab;
+  mapper->chr_tab = chr_tab;
+
+  /* read entire genome sequence */
+  fprintf(stderr, "reading genome sequence\n");
+  mapper->genome_nucs = mapper_read_seqs(chr_tab, fasta_files, n_fasta_files);
+  mapper->genome_len = chr_tab->total_chr_len;
+
+  mapper->max_mismatch = max_mismatch;
+
+  if(mapper->max_mismatch > 1) {
+    my_err("%s:%d: only 0 or 1 mismatches currently implemented",
+	   __FILE__, __LINE__);
+  }
+
+  return mapper;
+}
+
+
+/**
+ * frees memory allocated for read mapper, including genome sequences
+ * and seeds (but not including seed 
+ */
+void mapper_free(Mapper *mapper) {
+  my_free(mapper->genome_nucs);
+  my_free(mapper);
+}

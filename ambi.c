@@ -8,10 +8,6 @@
 #include "memutil.h"
 #include "util.h"
 
-int ambi_resolve_recurs(unsigned char *nucs, int len,
-			unsigned char **unambig_nucs, int n,
-			int max, int nuc_idx);
-
 
 
 /**

@@ -14,8 +14,6 @@ typedef struct {
   int seed_len;        /* seed length */
   unsigned int n_seed; /* number of seeds */
 
-
-
   unsigned int total_match;  /* total number of matches in table so far */
 
   unsigned int *n_match; /* number of genomic matches for each seed */
@@ -24,8 +22,6 @@ typedef struct {
 
   /* memory buffer for storing seed matches */
   unsigned int *match_buf;
-
-  unsigned int *tmp_match_buf;
 
   /* memory buffer for storing unambiguous seeds (parsed
    * from seeds containing ambiguity codes)
@@ -36,14 +32,25 @@ typedef struct {
 
 
 
+typedef struct {
+  unsigned int n_match;  /* total number of genomic matches */
+  unsigned int n_kmer;  /* number of unambiguous kmers from seed */
+
+  /* ids of kmers, used to lookup genomic locations of matches in seed table */
+  unsigned int kmer_ids[SEED_TABLE_MAX_UNAMBIG];
+} SeedMatch;
+
+
+
 void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs);
 
 void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 			  unsigned char *nucs);
 
-unsigned int seed_table_get_matches(SeedTable *seed_tab, 
-				    unsigned char *nucs,
-				    unsigned int **match_offsets);
+void seed_table_lookup(SeedTable *seed_tab, unsigned char *nucs,
+		       SeedMatch *seed_match);
+
+unsigned int seed_table_n_match(SeedTable *seed_tab, unsigned char *nucs);
 
 void seed_table_write(SeedTable *seed_table, gzFile f);
 

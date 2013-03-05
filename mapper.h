@@ -10,12 +10,22 @@
 #define MAP_CODE_MULTI 2  /* maps multiple times */
 
 
+
 typedef struct {
-  unsigned int len;
-  unsigned int read_idx;
-  unsigned int n_match;
-  unsigned int *matches;
+  SeedTable *seed_tab;
+  ChrTable *chr_tab;
+  unsigned char *genome_nucs;
+  long genome_len;
+  int max_mismatch;
+} Mapper;
+
+
+typedef struct {
+  unsigned int len;            /* length of seed */
+  unsigned int read_idx;       /* index into read */
+  SeedMatch match;
 } MapSeed;
+
 
 
 typedef struct {
@@ -28,24 +38,29 @@ typedef struct {
   /* length of read */
   unsigned int len;
 
-  MapSeed fwd_seed;
-  MapSeed rev_seed;
-
   /* offset and strand giving genomic location that read maps to */
   unsigned int map_offset;
   char map_strand;
   
   /* does this read map uniquely, multiple times, or not at all? */
   int map_code;
+
+  /* how many mismatches? */
+  int n_mismatch;
+
+  /* set to TRUE if read contains an N */
+  int has_n;
 } MapRead;
 
 
 
-void mapper_map_one_read(SeedTable *seed_tab, unsigned char *genome_nucs,
-			 long genome_len, MapRead *read);
+void mapper_map_one_read(Mapper *mapper, MapRead *read);
 
-void mapper_write_read(ChrTable *chr_tab, MapRead *read);
+Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab,
+		    char **fasta_files, int n_fasta_files,
+		    int max_mismatch);
 
+void mapper_free(Mapper *mapper);
 
 unsigned char *mapper_read_seqs(ChrTable *chr_tab, char **fasta_files, 
 				int n_fasta_files);
