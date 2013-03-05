@@ -147,7 +147,7 @@ int ambi_nucs_match(unsigned char nuc1, unsigned char nuc2) {
     ambi_get_nucs(nuc2, &n1, &n2);
 
     /* nuc2 is ambiguous, check if either possible base matches nuc1 */
-    return ((n1 == nuc1) || (n2 == nuc2));
+    return ((n1 == nuc1) || (n2 == nuc1));
   }
 
   /* neither nucleotide is ambiguous */
