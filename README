@@ -1,5 +1,7 @@
+---------------------------------------------------
+mark_fasta_SNPs.py
 
-First markup a genomesequence with ambiguity characters representing
+Markup a genome sequence with ambiguity characters representing
 the locations and alleles of every SNP. This script is currently
 written in python (and is somewhat slow) and has hardcoded paths to
 HDF5 files containing the hg18 genome sequence and the locations of
@@ -7,25 +9,112 @@ all 1000 genomes YRI SNPs. An output directory must be provided to the
 script. The script writes a single ambiguity-code containing fasta
 file for each chromosome. Currently indels are ignored.
 
+Example:
   python mark_fasta_SNPs.py ~/data/hg18/seq_with_snps
 
+
+--------------------------------------------------
+build_seed_index
 
 Create a binary file that contains genomic positions of seed
 matches. This only needs to be done once for a seed of a given length
 (and a given genome with SNPs). For example, the following command
 builds an index table of 13bp seeds:
 
+Exmaple:
   ./build_seed_index 13 chromInfo.txt seed_idx.13.gz ~/data/hg18/seq_with_snps/chr*.fa.gz
 
 
-Calculate mapping uniqueness of reads starting at every possible genomic
-position. This needs to be done once for each read length. This program
-writes a single wiggle file per chromosome containing the following integer
-codes for reads starting at each position:
+--------------------------------------------------
+calc_mapping_uniqueness
+
+Calculate mapping uniqueness of reads starting at every possible
+genomic position using the program calc_mapping_uniqueness. This needs
+to be done once for each read length. This program writes a single
+wiggle file per chromosome containing the following integer codes for
+reads starting at each position:
+
  0 - does not map (contains N, or overhangs chromosome end)
  1 - maps uniquely
  2 - maps to multiple locations
-Example:
 
+This program takes into account SNPs (identified by ambiguity codes)
+and will attempt to map all combinations of alleles. Sometimes one
+allele will map unquely, but the other allele will map to multiple
+locations. In this case, the read is flagged as mapping to multiple
+locations.
+
+The program arguments are:
+  1  path to seed table created by build_seed_index
+  2  path to chromInfo.txt file giving chromosome names and lengths
+  3  length of reads in bp
+  4  output directory to write wiggle files to
+  5+ fasta files containing genome sequence with 
+     ambiguity codes representing SNPs
+
+Example:
   ./calc_mapping_uniqueness seed_idx.13.gz chromInfo.txt 36 ~/data/hg18/mapping_uniqueness_36bp/ ~/data/hg18/seq_with_snps/chr*.fa.gz
 
+
+--------------------------------------------------
+map_fastq
+
+Map all reads in a fastq file to the genom.. This program assigns each
+read the following mapping code:
+
+  0 - does not map
+  1 - maps uniquely
+  2 - maps to multiple locations
+
+Reads are written to separate output files, depending on their
+status. Unmapped reads are written to 'unmapped.txt.gz',
+multiply-mapping reads are written to 'multi_mapped.txt.gz' and
+uniquely mapping reads are written to a single file per chromosome
+(e.g. chr1.mapped.txt.gz for reads that map uniquely to chr1).
+
+A read is first mapped without allowing mismatches. If the read fails
+to map without mismatches, a second attempt is made to map the read,
+allowing a single mismatch. Known SNPs are taken into account when
+mapping--bases that match the reference or non-reference allele are
+not considered mismatches. Single mismatches are allowed (if the read
+initially fails to map) to avoid mapping bias introduced by unknown
+SNPs (e.g. private variants). Unfortunately unknown indels can still
+result in occasionally biased mapping. Reads that contain Ns are not
+mapped.
+
+The program arguments are:
+  1  path to seed table created by build_seed_index
+  2  path to chromInfo.txt file giving chromosome names and lengths
+  3  path to fastq file (may be gzipped)
+  4  path to output directory
+  5+ fasta files containing genome sequence with 
+     ambiguity codes representing SNPs
+
+If a 13bp seed table is used, this program needs about 20Gb of memory
+to map reads to the human genome.
+
+The output files have one read per line with the following
+space-delimited columns. Reads are reverse complemented if they mapped
+to the reverse strand so that the sequence can always be directly
+compared to the forward strand of the genome.
+  1 - read sequence (reverse complemented if read mapped to - strand)
+  2 - chromosome name (or . if did not map)
+  3 - read start position
+  4 - strand (+, -); for (-) strand reads, read has been reverse complemented
+  5 - mapping code (0, 1, 2) for unmapped, unique, multiple
+  6 - number of mismatches (0 or 1)
+
+
+Example:
+  ./map_fastq seed_idx.13.gz chromInfo.txt H3K4me1_18508.fastq.gz out/ ~/data/hg18/seq_with_snps/chr*.fa.gz
+
+
+
+--------------------------------
+TODO
+- cluster submission script to map all lanes
+- combine mapped reads across lanes
+- sort mapped reads
+- remove duplicate reads
+
+gunzip -c chr9.mapped.txt.gz | sort -k3 -n | gzip -c > chr9.mapped.sorted.txt.gz

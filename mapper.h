@@ -16,7 +16,7 @@ typedef struct {
   ChrTable *chr_tab;
   unsigned char *genome_nucs;
   long genome_len;
-  int max_mismatch;
+  int allow_mismatch;
 } Mapper;
 
 

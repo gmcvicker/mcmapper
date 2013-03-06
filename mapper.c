@@ -89,26 +89,15 @@ void write_match(FILE *f, unsigned char *genome_nucs, SeedTable *seed_tab,
 
 
 
-void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
+void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, 
+		char strand, int max_mismatch) {
   long k, match_offset, genome_seed_start, genome_seed_end;
   long genome_read_start, genome_read_end;
   unsigned char *read_nucs;
   unsigned int kmer_id, i, j;
   int n_mismatch;
 
-  if(strand == STRAND_FWD) {
-    read_nucs = read->fwd_nucs;
-  }
-  else if(strand == STRAND_REV) {
-    read_nucs = read->rev_nucs;
-  } else {
-    read_nucs = NULL;
-    my_err("%s:%d: unknown strand", __FILE__, __LINE__);
-  }
-
-  read->n_mismatch = 0;
-
-  /* fprintf(stderr, "seed match has %u kmers\n", seed->match.n_kmer); */
+  read_nucs = (strand == STRAND_FWD) ? read->fwd_nucs : read->rev_nucs;
   
   /* loop over every kmer for seed (can be >1 because of ambiguity codes) */
   for(i = 0; i < seed->match.n_kmer; i++) {
@@ -138,7 +127,7 @@ void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
        * ambiguity codes
        */
       k = 0;
-      while((n_mismatch <= mapper->max_mismatch) && (k < seed->read_idx)) {
+      while((n_mismatch <= max_mismatch) && (k < seed->read_idx)) {
 	if(!ambi_nucs_match(mapper->genome_nucs[genome_read_start + k], 
 			    read_nucs[k])) {
 	  n_mismatch += 1;
@@ -150,7 +139,7 @@ void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
        * ambiguity codes
        */
       k = seed->read_idx + seed->len;
-      while((n_mismatch <= mapper->max_mismatch) && (k < read->len)) {
+      while((n_mismatch <= max_mismatch) && (k < read->len)) {
 	if(!ambi_nucs_match(mapper->genome_nucs[genome_read_start + k], 
 			    read_nucs[k])) {
 	  n_mismatch += 1;
@@ -158,7 +147,7 @@ void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
 	k++;
       }
 
-      if(n_mismatch > mapper->max_mismatch) {
+      if(n_mismatch > max_mismatch) {
 	/* too many mismatches */
 	continue;
       }
@@ -190,61 +179,136 @@ void align_read(Mapper *mapper, MapRead *read, MapSeed *seed, char strand) {
 
 
 
-void mapper_map_perfect(Mapper *mapper, MapRead *read) {
+void mapper_map_perfect(Mapper *mapper, MapRead *read, char strand) {
   MapSeed seed;
-  
+  unsigned char *nucs;
+
+  nucs = (strand == STRAND_FWD) ? read->fwd_nucs : read->rev_nucs;  
   seed.len = mapper->seed_tab->seed_len;
 
-  /* find best seed (one with fewest matches) on fwd strands */
+  /* find best seed (one with fewest genomic matches) */
+  get_best_seed(mapper->seed_tab, nucs, read->len, &seed);
+  align_read(mapper, read, &seed, strand, 0);
+}
+
+
+
+
+/**
+ * This function is called once we have already failed to map
+ * a read without mismatches. It tries to map the read a second
+ * time, but allowing one mismatch.
+ */
+void mapper_map_one_mismatch(Mapper *mapper, MapRead *read, char strand) {
+  MapSeed seed;
+  unsigned int seed_end, orig_offset;
+  int orig_map_code, orig_n_mismatch;
+  unsigned char *nucs;
+
+  nucs = (strand == STRAND_FWD) ? read->fwd_nucs : read->rev_nucs;
+  seed.len = mapper->seed_tab->seed_len;
+  
+  if(read->len < seed.len*2) {
+    my_err("%s:%d: read is too short (%d bp) (or seeds are too long "
+	   "(%u bp) to map two independent seeds\n", __FILE__, __LINE__,
+	   read->len, seed.len);
+  }
+
+  /* get best seed from first half of read */
+  get_best_seed(mapper->seed_tab, nucs, read->len / 2, &seed);
+
+  /* align using the first seed */
+  align_read(mapper, read, &seed, strand, 1);
+
+  if(read->map_code == MAP_CODE_MULTI) {
+    /* read maps multiple times after using first seed, give up */
+    return;
+  }
+  
+  /* Now get best seed that does not overlap first and try to map again.
+   * This is to allow for fact that there may be locations where read can 
+   * map but there is a single mismatch located in the original seed
+   */
+  /* record mapping information from first attempt */
+  orig_map_code = read->map_code;
+  orig_offset = read->map_offset;
+  orig_n_mismatch = read->n_mismatch;
+
   read->map_code = MAP_CODE_NONE;
 
-  /* try to align fwd strand of read to genome */
-  get_best_seed(mapper->seed_tab, read->fwd_nucs, read->len, &seed);
+  /* get new seed from second half of read */
+  seed_end = seed.read_idx + seed.len;
+  get_best_seed(mapper->seed_tab, &nucs[seed_end], 
+		read->len - seed_end, &seed);
 
-  /* fprintf(stderr, "using fwd seed from position %u with %u matches\n", */
-  /*   	  seed.read_idx, seed.match.n_match); */
+  /* update read_idx since we searched for seeds starting in middle of read */
+  seed.read_idx += seed_end;
 
-  align_read(mapper, read, &seed, STRAND_FWD);
-
-  if(read->map_code == MAP_CODE_NONE || read->map_code == MAP_CODE_UNIQUE) {
-
-    /* now try to align read to rev strand of read to genome */
-    get_best_seed(mapper->seed_tab, read->rev_nucs, read->len, &seed);
-
-    /* fprintf(stderr, "using rev seed from position %u with %u matches\n", */
-    /*  	    seed.read_idx, seed.match.n_match); */
-
-    align_read(mapper, read, &seed, STRAND_REV);
+  /* try to map again */
+  align_read(mapper, read, &seed, strand, 1);
+  
+  switch(read->map_code) {
+  case(MAP_CODE_MULTI):
+    /* read now maps multiple times, give up */
+    break;
+  case(MAP_CODE_NONE):
+    if(orig_map_code == MAP_CODE_UNIQUE) {
+      /* could not map with this seed, but original seed mapped */
+      read->map_offset = orig_offset;
+      read->map_code = MAP_CODE_UNIQUE;
+      read->n_mismatch = orig_n_mismatch;
+    }
+    break;
+  case(MAP_CODE_UNIQUE):
+    if((orig_map_code == MAP_CODE_UNIQUE) && 
+       (read->map_offset != orig_offset)) {
+      /* read mapped to two different locations with different seeds */
+      read->map_code = MAP_CODE_MULTI;
+    }
+    break;
+  default:
+    my_err("%s:%d: unknown map code");
   }
 }
 
-
-
-
-void mapper_map_one_mismatch(Mapper *mapper, MapRead *read) {
-  /** TODO **/
-
-}
 
 
 
 void mapper_map_one_read(Mapper *mapper, MapRead *read) {
+  /* do not map reads that contain Ns */
   read->has_n = nuc_ids_have_n(read->fwd_nucs, read->len);
   if(read->has_n) {
-    /* do not map reads that contain Ns */
     read->map_code = MAP_CODE_NONE;
     return;
   }
 
-  if(mapper->max_mismatch == 0) {
-    mapper_map_perfect(mapper, read);
+  /* try to align fwd strand of read to fwd strand of genome */
+  read->map_code = MAP_CODE_NONE;
+  mapper_map_perfect(mapper, read, STRAND_FWD);
+
+  if(read->map_code == MAP_CODE_MULTI) {
+    /* read mapped multiple times, give up */
+    return;
   }
-  else if(mapper->max_mismatch == 1) {
-    mapper_map_one_mismatch(mapper, read);
-  }
-  else {
-    my_err("%s:%d: mapping allowing %d mismatches not currently implemented",
-	   __FILE__, __LINE__, mapper->max_mismatch);
+
+  /* now try to align reverse complement of read */
+  mapper_map_perfect(mapper, read, STRAND_REV);
+  
+  if((read->map_code == MAP_CODE_NONE) && mapper->allow_mismatch) {
+    /* 
+     * read did not map with 0 mismatches, try again but allowing 1 mismatch
+     */
+    mapper_map_one_mismatch(mapper, read, STRAND_FWD);
+    if(read->map_code == MAP_CODE_MULTI) {
+      return;
+    }
+
+    mapper_map_one_mismatch(mapper, read, STRAND_REV);
+
+    /* sanity check, should be single mismatch if we mapped this time */
+    if(read->map_code == MAP_CODE_UNIQUE && read->n_mismatch != 1) {
+      my_err("%s:%d: expected read to have 1 mismatch\n", __FILE__, __LINE__);
+    }
   }
 }
 
@@ -309,7 +373,7 @@ unsigned char *mapper_read_seqs(ChrTable *chr_tab, char **fasta_files,
  */
 Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab, 
 		    char **fasta_files, int n_fasta_files,
-		    int max_mismatch) {
+		    int allow_mismatch) {
   Mapper *mapper;
 
   mapper = my_new(Mapper, 1);
@@ -321,12 +385,7 @@ Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab,
   mapper->genome_nucs = mapper_read_seqs(chr_tab, fasta_files, n_fasta_files);
   mapper->genome_len = chr_tab->total_chr_len;
 
-  mapper->max_mismatch = max_mismatch;
-
-  if(mapper->max_mismatch > 1) {
-    my_err("%s:%d: only 0 or 1 mismatches currently implemented",
-	   __FILE__, __LINE__);
-  }
+  mapper->allow_mismatch = allow_mismatch;
 
   return mapper;
 }

@@ -139,14 +139,14 @@ void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
 
 int main(int argc, char **argv) {
   char **fasta_files, *seed_index_file, *chrom_info_file, *output_dir;
-  int n_fasta_files, read_len, max_mismatch;
+  int n_fasta_files, read_len;
   SeedTable *seed_tab;
   ChrTable *chr_tab;
   Mapper *mapper;
 
-  if(argc < 6) {
+  if(argc < 5) {
     fprintf(stderr, "usage: %s <seed_index_file> <chromInfo.txt> <read_len>"
-	    " <max_mismatch> <output_dir> <chr1.fa.gz> [<chr2.fa.gz [...]]\n",
+	    " <output_dir> <chr1.fa.gz> [<chr2.fa.gz [...]]\n",
 	    argv[0]);
     exit(2);
   }
@@ -154,18 +154,16 @@ int main(int argc, char **argv) {
   seed_index_file = argv[1];
   chrom_info_file = argv[2];
   read_len = util_parse_long(argv[3]);
-  max_mismatch = util_parse_long(argv[4]);
-  output_dir = argv[5];
-  fasta_files = &argv[6];
-  n_fasta_files = argc - 6;
+  output_dir = argv[4];
+  fasta_files = &argv[5];
+  n_fasta_files = argc - 5;
   
   chr_tab = chr_table_read(chrom_info_file);
   
   fprintf(stderr, "reading seed index\n");
   seed_tab = seed_table_read(seed_index_file);
 
-  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files,
-		       max_mismatch);
+  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, FALSE);
 
   fprintf(stderr, "mapping reads\n");
   map_reads(output_dir, mapper, read_len);
