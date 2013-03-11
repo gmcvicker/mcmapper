@@ -179,7 +179,7 @@ void align_read(Mapper *mapper, MapRead *read, MapSeed *seed,
 
 
 
-void mapper_map_perfect(Mapper *mapper, MapRead *read, char strand) {
+void map_perfect(Mapper *mapper, MapRead *read, char strand) {
   MapSeed seed;
   unsigned char *nucs;
 
@@ -199,7 +199,7 @@ void mapper_map_perfect(Mapper *mapper, MapRead *read, char strand) {
  * a read without mismatches. It tries to map the read a second
  * time, but allowing one mismatch.
  */
-void mapper_map_one_mismatch(Mapper *mapper, MapRead *read, char strand) {
+void map_one_mismatch(Mapper *mapper, MapRead *read, char strand) {
   MapSeed seed;
   unsigned int seed_end, orig_offset;
   int orig_map_code, orig_n_mismatch;
@@ -273,7 +273,60 @@ void mapper_map_one_mismatch(Mapper *mapper, MapRead *read, char strand) {
 
 
 
+/**
+ * Tries to map read allowing 1 mismatch
+ */
+void mapper_map_one_read_allow_mismatch(Mapper *mapper, MapRead *read) {
+  /* do not map reads that contain Ns */
+  read->has_n = nuc_ids_have_n(read->fwd_nucs, read->len);
+  if(read->has_n) {
+    read->map_code = MAP_CODE_NONE;
+    return;
+  }
 
+  read->map_code = MAP_CODE_NONE;
+
+  /* try to map fwd strand of read to fwd strand of genome */
+  map_one_mismatch(mapper, read, STRAND_FWD);
+  if(read->map_code == MAP_CODE_MULTI) {
+    return;
+  }
+  
+  /* now try to map rev complement of read to fwd strand of genome */
+  map_one_mismatch(mapper, read, STRAND_REV);
+}
+
+
+/**
+ * Tries to map read without any mismatches
+ */
+void mapper_map_one_read_no_mismatch(Mapper *mapper, MapRead *read) {
+  /* do not map reads that contain Ns */
+  read->has_n = nuc_ids_have_n(read->fwd_nucs, read->len);
+  if(read->has_n) {
+    read->map_code = MAP_CODE_NONE;
+    return;
+  }
+  
+  /* try to align fwd strand of read to fwd strand of genome */
+  read->map_code = MAP_CODE_NONE;
+  map_perfect(mapper, read, STRAND_FWD);
+
+  if(read->map_code == MAP_CODE_MULTI) {
+    /* read mapped multiple times, give up */
+    return;
+  }
+
+  /* now try to align reverse complement of read */
+  map_perfect(mapper, read, STRAND_REV);
+}
+
+
+
+/**
+ * First tries to map read without allowing mismatches.  If read does
+ * not map at all, then tries to map again but allowing one mismatch.
+ */
 void mapper_map_one_read(Mapper *mapper, MapRead *read) {
   /* do not map reads that contain Ns */
   read->has_n = nuc_ids_have_n(read->fwd_nucs, read->len);
@@ -284,7 +337,7 @@ void mapper_map_one_read(Mapper *mapper, MapRead *read) {
 
   /* try to align fwd strand of read to fwd strand of genome */
   read->map_code = MAP_CODE_NONE;
-  mapper_map_perfect(mapper, read, STRAND_FWD);
+  map_perfect(mapper, read, STRAND_FWD);
 
   if(read->map_code == MAP_CODE_MULTI) {
     /* read mapped multiple times, give up */
@@ -292,18 +345,18 @@ void mapper_map_one_read(Mapper *mapper, MapRead *read) {
   }
 
   /* now try to align reverse complement of read */
-  mapper_map_perfect(mapper, read, STRAND_REV);
+  map_perfect(mapper, read, STRAND_REV);
   
   if((read->map_code == MAP_CODE_NONE) && mapper->allow_mismatch) {
     /* 
      * read did not map with 0 mismatches, try again but allowing 1 mismatch
      */
-    mapper_map_one_mismatch(mapper, read, STRAND_FWD);
+    map_one_mismatch(mapper, read, STRAND_FWD);
     if(read->map_code == MAP_CODE_MULTI) {
       return;
     }
-
-    mapper_map_one_mismatch(mapper, read, STRAND_REV);
+    
+    map_one_mismatch(mapper, read, STRAND_REV);
 
     /* sanity check, should be single mismatch if we mapped this time */
     if(read->map_code == MAP_CODE_UNIQUE && read->n_mismatch != 1) {

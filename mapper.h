@@ -56,6 +56,11 @@ typedef struct {
 
 void mapper_map_one_read(Mapper *mapper, MapRead *read);
 
+void mapper_map_one_read_allow_mismatch(Mapper *mapper, MapRead *read);
+
+void mapper_map_one_read_no_mismatch(Mapper *mapper, MapRead *read);
+
+
 Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab,
 		    char **fasta_files, int n_fasta_files,
 		    int max_mismatch);

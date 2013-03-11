@@ -16,17 +16,17 @@
 
 
 
-
 gzFile get_out_file(const char *output_dir, Chromosome *chr) {
   gzFile out_file;
-  char *out_path;
+  char *out_path, *dir;
 
   if(util_str_ends_with(output_dir, "/")) {
-    out_path = util_str_concat(output_dir, chr->name, ".wig.gz", NULL);
+    dir = util_str_dup(output_dir);
   } else {
-    out_path = util_str_concat(output_dir, "/", chr->name, ".wig.gz", NULL);
+    dir = util_str_concat(output_dir, "/", NULL);
   }
 
+  out_path = util_str_concat(dir, chr->name, ".wig.gz", NULL);
 
   if(util_file_exists(out_path)) {
     my_err("%s:%d: output file %s already exists", __FILE__, __LINE__,
@@ -37,14 +37,54 @@ gzFile get_out_file(const char *output_dir, Chromosome *chr) {
 
   fprintf(stderr, "writing to file %s\n", out_path);
 
+  /* write header */
+  gzprintf(out_file, "fixedStep chrom=%s start=1 step=1\n", chr->name);
+
+  my_free(dir);
   my_free(out_path);
 
   return out_file;
 }
 
+void map_read(gzFile out_file, Mapper *mapper, MapRead *read, 
+	      long read_start, int n_mismatch) {
+
+  if(n_mismatch == 0) {
+    /* try mapping without mismatch, and report result */
+    mapper_map_one_read_no_mismatch(mapper, read);
+  }
+  else if(n_mismatch == 1) {
+    mapper_map_one_read_allow_mismatch(mapper, read);
+  }
+  else {
+    my_err("%s:%d: only 0 or 1 mismatch supported\n", __FILE__, __LINE__);
+  }
+
+  
+  if((read->map_code == MAP_CODE_UNIQUE) && 
+     (read->map_offset != read_start)) {
+    /* sanity check: if read maps uniquely, it must map back to 
+     * this location
+     */
+    my_err("%s:%d: read maps uniquely, but to wrong genomic offset "
+	   "(%u != %u)", __FILE__, __LINE__, read_start, 
+	   read->map_offset);
+  }
+  if(read->map_code == MAP_CODE_NONE) {
+    if(!read->has_n) {
+      /* samity check: read must map at least once */
+      my_err("%s:%d: read from genomic offset %u does not map back "
+	     "to genome", __FILE__, __LINE__, read_start);	
+    }
+  }
+  
+  /* write result to wiggle file */
+  gzprintf(out_file, "%d\n", read->map_code);
+}
 
 
-void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
+void map_reads(const char *output_dir, Mapper *mapper, int n_mismatch, 
+	       long read_len) {
   long read_start, read_end;
   MapRead read;
   int chr_idx;
@@ -67,8 +107,6 @@ void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
   /* get first output file, write header */
   fprintf(stderr, "%s\n", chr->name);
   out_file = get_out_file(output_dir, chr);
-  gzprintf(out_file, "fixedStep chrom=%s start=1 step=1\n",
-	   chr->name);
   
   for(read_start = 0; read_start < mapper->genome_len; read_start++) {
     read_end = read_start + read_len - 1;
@@ -85,13 +123,9 @@ void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
 
       fprintf(stderr, "%s\n", chr->name);
 
-      /* open new output file, write header */
-      if(out_file) {
-	gzclose(out_file);
-      }
+      /* close old, open new output file */
+      gzclose(out_file);
       out_file = get_out_file(output_dir, chr);
-      gzprintf(out_file, "fixedStep chrom=%s start=1 step=1\n",
-	       chr->name);
     }
 
     if(read_end > chr_end_offset) {
@@ -105,32 +139,11 @@ void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
       memcpy(read.rev_nucs, &mapper->genome_nucs[read_start], read.len);
       nuc_ids_revcomp(read.rev_nucs, read.len);
 
-      mapper_map_one_read(mapper, &read);
-
-      if((read.map_code == MAP_CODE_UNIQUE) && 
-	 (read.map_offset != read_start)) {
-	/* sanity check: if read maps uniquely, it must map back to 
-	 * this location
-	 */
-	my_err("%s:%d: read maps uniquely, but to wrong genomic offset "
-	       "(%u != %u)", __FILE__, __LINE__, read_start, 
-	       read.map_offset);
-      }
-      if(read.map_code == MAP_CODE_NONE) {
-	if(!read.has_n) {
-	  /* samity check: read must map at least once */
-	  my_err("%s:%d: read from genomic offset %u does not map back "
-		 "to genome", __FILE__, __LINE__, read_start);	
-	}
-      }
-
-      gzprintf(out_file, "%d\n", read.map_code);
+      map_read(out_file, mapper, &read, read_start, n_mismatch);
     }
   }
 
-  if(out_file) {
-    gzclose(out_file);
-  }
+  gzclose(out_file);
   my_free(read.fwd_nucs);
   my_free(read.rev_nucs);
 }
@@ -139,14 +152,14 @@ void map_reads(const char *output_dir, Mapper *mapper, long read_len) {
 
 int main(int argc, char **argv) {
   char **fasta_files, *seed_index_file, *chrom_info_file, *output_dir;
-  int n_fasta_files, read_len;
+  int n_fasta_files, read_len, n_mismatch;
   SeedTable *seed_tab;
   ChrTable *chr_tab;
   Mapper *mapper;
 
   if(argc < 5) {
     fprintf(stderr, "usage: %s <seed_index_file> <chromInfo.txt> <read_len>"
-	    " <output_dir> <chr1.fa.gz> [<chr2.fa.gz [...]]\n",
+	    " <n_mismatch> <output_dir> <chr1.fa.gz> [<chr2.fa.gz [...]]\n",
 	    argv[0]);
     exit(2);
   }
@@ -154,9 +167,10 @@ int main(int argc, char **argv) {
   seed_index_file = argv[1];
   chrom_info_file = argv[2];
   read_len = util_parse_long(argv[3]);
-  output_dir = argv[4];
-  fasta_files = &argv[5];
-  n_fasta_files = argc - 5;
+  n_mismatch = util_parse_long(argv[4]);
+  output_dir = argv[5];
+  fasta_files = &argv[6];
+  n_fasta_files = argc - 6;
   
   chr_tab = chr_table_read(chrom_info_file);
   
@@ -166,7 +180,7 @@ int main(int argc, char **argv) {
   mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, FALSE);
 
   fprintf(stderr, "mapping reads\n");
-  map_reads(output_dir, mapper, read_len);
+  map_reads(output_dir, mapper, n_mismatch, read_len);
   
   seed_table_free(seed_tab);
   chr_table_free(chr_tab);
