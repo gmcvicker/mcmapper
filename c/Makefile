@@ -1,6 +1,6 @@
 
-CFLAGS=-Wall -O3 -I../genome/c/lib -g
-LFLAGS=-lz -lgenome -L../genome/c/lib
+CFLAGS=-Wall -O3 -I../../genome/c/lib -g
+LFLAGS=-lz -lgenome -L../../genome/c/lib
 CC=gcc
 
 # not sure if GLIB will be needed yet or not...
