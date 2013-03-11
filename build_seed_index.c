@@ -1,8 +1,3 @@
-/* TODO: 
- * - Allow for polymorphisms (ambiguity codes).
- * - Reduce memory footprint. Only allow up to MAX_SEED_MATCH matches?
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 
