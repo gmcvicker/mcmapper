@@ -48,18 +48,26 @@ The program arguments are:
   1  path to seed table created by build_seed_index
   2  path to chromInfo.txt file giving chromosome names and lengths
   3  length of reads in bp
-  4  output directory to write wiggle files to
-  5+ fasta files containing genome sequence with 
+  4  number of allowed mismatches (0 or 1)
+  5  output directory to write wiggle files to
+  6+ fasta files containing genome sequence with 
      ambiguity codes representing SNPs
 
 Example:
-  ./calc_mapping_uniqueness seed_idx.13.gz chromInfo.txt 36 ~/data/hg18/mapping_uniqueness_36bp/ ~/data/hg18/seq_with_snps/chr*.fa.gz
+  ./calc_mapping_uniqueness /data/share/10_IND_v2/mapper/input_files/seed_idx.13bp.hg18.gz /data/share/10_IND_v2/mapper/input_files/chromInfo.hg18.txt 36 0 /data/share/10_IND_v2/mapper/mappability/36bp/0_mismatch /data/share/10_IND_v2/mapper/input_files/hg18_with_snps/chr*.fa.gz
 
+
+--------------------------------------------------
+load_mapping_uniqueness.sh
+
+Convert the mapping uniqueness wiggle files to HDF5 format.  Edit the
+script load_mapping_uniqueness.sh, which calls the create_track.py
+script that actually creates the HDF5 files.
 
 --------------------------------------------------
 map_fastq
 
-Map all reads in a fastq file to the genom.. This program assigns each
+Map all reads in a fastq file to the genome. This program assigns each
 read the following mapping code:
 
   0 - does not map
@@ -109,12 +117,26 @@ Example:
   ./map_fastq seed_idx.13.gz chromInfo.txt H3K4me1_18508.fastq.gz out/ ~/data/hg18/seq_with_snps/chr*.fa.gz
 
 
+To run a lot of mapping jobs on the cluster use a submission script
+like the one here: sh/map_reads.sh
+
+--------------------------------
+Bryce has written a script to:
+  - merge lanes of mapped reads
+  - sort mapped reads
+  - filter duplicate mapped reads
+
+The script is here:
+  sh/merge_sort_rmdup.sh
+and calls the python script here:
+  python/rmdup.py
+
+--------------------------------
 
 --------------------------------
 TODO
-- cluster submission script to map all lanes
-- combine mapped reads across lanes
-- sort mapped reads
-- remove duplicate reads
-
-gunzip -c chr9.mapped.txt.gz | sort -k3 -n | gzip -c > chr9.mapped.sorted.txt.gz
+- filter reads based on mappability and indel overlap
+- update het probs
+- make all data count HDF5 files
+--- Potentially map and use all DNase and MNase reads too
+- create haplotype read count files
