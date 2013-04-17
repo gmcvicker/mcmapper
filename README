@@ -1,13 +1,16 @@
 ---------------------------------------------------
 mark_fasta_SNPs.py
 
-Markup a genome sequence with ambiguity characters representing
-the locations and alleles of every SNP. This script is currently
-written in python (and is somewhat slow) and has hardcoded paths to
-HDF5 files containing the hg18 genome sequence and the locations of
-all 1000 genomes YRI SNPs. An output directory must be provided to the
-script. The script writes a single ambiguity-code containing fasta
-file for each chromosome. Currently indels are ignored.
+Markup a genome sequence with ambiguity characters representing the
+locations and alleles of every SNP. This script is currently written
+in python and has hardcoded paths to HDF5 files containing the hg18
+genome sequence and the locations of all 1000 genomes phase1 SNPs. An
+output directory must be provided to the script. The script writes a
+single ambiguity-code containing fasta file for each
+chromosome. Currently indels are ignored.
+
+This program should probably be re-written to directly use 
+FASTA files and a SNP list from 1000 genomes or dbSNP.
 
 Example:
   python mark_fasta_SNPs.py ~/data/hg18/seq_with_snps
@@ -121,22 +124,28 @@ To run a lot of mapping jobs on the cluster use a submission script
 like the one here: sh/map_reads.sh
 
 --------------------------------
-Bryce has written a script to:
-  - merge lanes of mapped reads
-  - sort mapped reads
-  - filter duplicate mapped reads
+merge_sort_rmdup.sh
 
-The script is here:
-  sh/merge_sort_rmdup.sh
-and calls the python script here:
-  python/rmdup.py
+This script (written by Bryce):
+  - merges lanes of mapped reads
+  - sorts mapped reads
+  - filters duplicate mapped reads
 
 --------------------------------
+filter_mappability_indels.py
+
+Filter reads that:
+  - map to location where at least one allele maps to multiple locations
+  - overlap indels
+  - overlap SNPs with 'reference allele' that does not match reference
+
+Can run this script on cluster using: submit_filter_mappability_indels.sh
+
+
 
 --------------------------------
 TODO
-- filter reads based on mappability and indel overlap
-- update het probs
 - make all data count HDF5 files
+- update het probs
 --- Potentially map and use all DNase and MNase reads too
 - create haplotype read count files

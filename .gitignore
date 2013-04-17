@@ -5,3 +5,5 @@ chromInfo.txt
 seed_idx.*.gz
 test_ambi
 test_kmer
+nohup.out
+map_fastq
