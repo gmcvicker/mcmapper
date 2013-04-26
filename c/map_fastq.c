@@ -133,15 +133,13 @@ void map_reads(gzFile *output_files, gzFile multi_out_file,
   FastqRead fastq_read;
   MapRead map_read;
   long warn_count, n_fastq_rec, n_fastq_err;
-  long n_map_uniq, n_map_multi, n_map_none, line_num;
+  long n_map_uniq, n_map_multi, n_map_none;
 
   map_read.fwd_nucs = my_new(unsigned char, FASTQ_MAX_LINE);
   map_read.rev_nucs = my_new(unsigned char, FASTQ_MAX_LINE);
 
   n_map_uniq = n_map_multi = n_map_none = 0;
   warn_count = n_fastq_err = n_fastq_rec = 0;
-
-  line_num = 1;
 
   /* loop over all records in FASTQ file */
   while(TRUE) {
@@ -159,16 +157,23 @@ void map_reads(gzFile *output_files, gzFile multi_out_file,
       /* this fastq record contains an error */
       if(warn_count < FASTQ_MAX_WARN) {
 	warn_count += 1;
-	my_warn("%s:%d: skipping invalid fastq record on line %ld:\n", 
-		__FILE__, __LINE__, line_num);
+	my_warn("%s:%d: skipping invalid fastq record:\n", 
+		__FILE__, __LINE__);
 	fprintf(stderr, "  %s\n  %s\n  %s\n  %s\n", fastq_read.line1, 
 		fastq_read.line2, fastq_read.line3, fastq_read.line4);
       }
       n_fastq_err += 1;
     }
+    else if(fastq_read.read_len != mapper->seed_finder_fwd->read_len) {
+      /* check that read length is correct */
+	warn_count += 1;
+	my_warn("%s:%d: specified read length is %u, but got %d, "
+		"skipping read\n",  __FILE__, __LINE__, 
+		mapper->seed_finder_fwd->read_len, fastq_read.read_len);
+	n_fastq_err += 1;
+    }
     else if(r == FASTQ_OK) {
       n_fastq_rec += 1;
-      line_num += 4;
 
       read_from_fastq_record(&map_read, &fastq_read);
 
@@ -218,7 +223,7 @@ void map_reads(gzFile *output_files, gzFile multi_out_file,
 int main(int argc, char **argv) {
   char **fasta_files, *reads_file, *seed_index_file;
   char *chrom_info_file, *output_dir;
-  int n_fasta_files, i;
+  int n_fasta_files, n_mismatch, read_len, i;
   SeedTable *seed_tab;
   ChrTable *chr_tab;
   Mapper *mapper;
@@ -226,6 +231,7 @@ int main(int argc, char **argv) {
 
   if(argc < 5) {
     fprintf(stderr, "usage: %s <seed_index_file> <chromInfo.txt> "
+	    "<read_len> <n_mismatch> "
 	    "<input_reads.fq.gz> <output_dir> "
 	    "<ref_chr1.fa.gz> [<ref_chr2.fa.gz [...]]\n",
 	    argv[0]);
@@ -234,10 +240,12 @@ int main(int argc, char **argv) {
   
   seed_index_file = argv[1];
   chrom_info_file = argv[2];
-  reads_file = argv[3];
-  output_dir = argv[4];
-  fasta_files = &argv[5];
-  n_fasta_files = argc - 5;
+  read_len = util_parse_long(argv[3]);
+  n_mismatch = util_parse_long(argv[4]);
+  reads_file = argv[5];
+  output_dir = argv[6];
+  fasta_files = &argv[7];
+  n_fasta_files = argc - 7;
   
   chr_tab = chr_table_read(chrom_info_file);
 
@@ -248,7 +256,8 @@ int main(int argc, char **argv) {
   fprintf(stderr, "reading seed index\n");
   seed_tab = seed_table_read(seed_index_file);
 
-  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, TRUE);
+  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, 
+		       read_len, n_mismatch);
 
   fprintf(stderr, "mapping reads\n");
   map_reads(out_files, multi_out_file, unmapped_out_file, reads_f, mapper);

@@ -4,6 +4,7 @@
 
 #include "chr_table.h"
 #include "seed_table.h"
+#include "seed_finder.h"
 
 #define MAP_CODE_NONE 0   /* does not map */
 #define MAP_CODE_UNIQUE 1 /* maps uniquely */
@@ -13,18 +14,13 @@
 
 typedef struct {
   SeedTable *seed_tab;
+  SeedFinder *seed_finder_fwd;
+  SeedFinder *seed_finder_rev;
   ChrTable *chr_tab;
   unsigned char *genome_nucs;
   long genome_len;
-  int allow_mismatch;
+  int max_mismatch;
 } Mapper;
-
-
-typedef struct {
-  unsigned int len;            /* length of seed */
-  unsigned int read_idx;       /* index into read */
-  SeedMatch match;
-} MapSeed;
 
 
 
@@ -56,14 +52,10 @@ typedef struct {
 
 void mapper_map_one_read(Mapper *mapper, MapRead *read);
 
-void mapper_map_one_read_allow_mismatch(Mapper *mapper, MapRead *read);
-
-void mapper_map_one_read_no_mismatch(Mapper *mapper, MapRead *read);
-
 
 Mapper *mapper_init(SeedTable *seed_tab, ChrTable *chr_tab,
 		    char **fasta_files, int n_fasta_files,
-		    int max_mismatch);
+		    int read_len, int max_mismatch);
 
 void mapper_free(Mapper *mapper);
 

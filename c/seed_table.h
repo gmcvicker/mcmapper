@@ -40,8 +40,6 @@ typedef struct {
   unsigned int kmer_ids[SEED_TABLE_MAX_UNAMBIG];
 } SeedMatch;
 
-
-
 void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs);
 
 void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,

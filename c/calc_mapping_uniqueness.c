@@ -46,20 +46,11 @@ gzFile get_out_file(const char *output_dir, Chromosome *chr) {
   return out_file;
 }
 
+
 void map_read(gzFile out_file, Mapper *mapper, MapRead *read, 
-	      long read_start, int n_mismatch) {
+	      long read_start) {
 
-  if(n_mismatch == 0) {
-    /* try mapping without mismatch, and report result */
-    mapper_map_one_read_no_mismatch(mapper, read);
-  }
-  else if(n_mismatch == 1) {
-    mapper_map_one_read_allow_mismatch(mapper, read);
-  }
-  else {
-    my_err("%s:%d: only 0 or 1 mismatch supported\n", __FILE__, __LINE__);
-  }
-
+  mapper_map_one_read(mapper, read);
   
   if((read->map_code == MAP_CODE_UNIQUE) && 
      (read->map_offset != read_start)) {
@@ -83,8 +74,7 @@ void map_read(gzFile out_file, Mapper *mapper, MapRead *read,
 }
 
 
-void map_reads(const char *output_dir, Mapper *mapper, int n_mismatch, 
-	       long read_len) {
+void map_reads(const char *output_dir, Mapper *mapper, int read_len) {
   long read_start, read_end;
   MapRead read;
   int chr_idx;
@@ -139,7 +129,7 @@ void map_reads(const char *output_dir, Mapper *mapper, int n_mismatch,
       memcpy(read.rev_nucs, &mapper->genome_nucs[read_start], read.len);
       nuc_ids_revcomp(read.rev_nucs, read.len);
 
-      map_read(out_file, mapper, &read, read_start, n_mismatch);
+      map_read(out_file, mapper, &read, read_start);
     }
   }
 
@@ -177,10 +167,11 @@ int main(int argc, char **argv) {
   fprintf(stderr, "reading seed index\n");
   seed_tab = seed_table_read(seed_index_file);
 
-  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, FALSE);
+  mapper = mapper_init(seed_tab, chr_tab, fasta_files, n_fasta_files, 
+		       read_len, n_mismatch);
 
   fprintf(stderr, "mapping reads\n");
-  map_reads(output_dir, mapper, n_mismatch, read_len);
+  map_reads(output_dir, mapper, read_len);
   
   seed_table_free(seed_tab);
   chr_table_free(chr_tab);
