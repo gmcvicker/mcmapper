@@ -48,5 +48,7 @@ typedef struct {
 
 int fastq_parse_read(FastqRead *read, gzFile f);
 
+int fastq_parse_qseq_read(FastqRead *read, gzFile f);
+
 
 #endif

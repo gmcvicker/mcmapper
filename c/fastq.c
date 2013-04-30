@@ -210,8 +210,15 @@ static int check_seq(FastqRead *read) {
   for(i = 0; i < read->read_len; i++) {
     c = read->line2[i];
 
+    if(c == '.') {
+      /* some qseq records use '.' instead of N */
+      read->line2[i] = 'N';
+      c = 'N';
+    }
+
     j = 0;
     while(c != valid_nucs[j]) {
+
       if(valid_nucs[j] == '\0') {
 	if(fastq_warn_count < FASTQ_MAX_WARN) {
 	  fastq_warn_count += 1;
@@ -329,6 +336,101 @@ int fastq_parse_read(FastqRead *read, gzFile f) {
     read->status = FASTQ_ERR;
     return read->status;
   }
+
+  check_seq(read);
+  check_qual(read);
+
+  return read->status;
+}
+
+
+
+/**
+ * Parses a read in qseq format into a FastqRead data structure.
+ * Returns FASTQ_END at end of file, FASTQ_OK on success, 
+ * FASTQ_ERR on problem.
+ *
+ * qseq format as described by SRA:
+ * ftp://ftp.era.ebi.ac.uk/meta/doc/sra_1_1/SRA_File_Formats_Guide.pdf
+ *
+ * record is one line with tab separator in the following format:
+ *   0 - Machine name: unique identifier of the sequencer.
+ *   1 - Run number: unique number to identify the run on the sequencer.
+ *   2 - Lane number: positive integer (currently 1-8).
+ *   3 - Tile number: positive integer.
+ *   4 - X: x coordinate of the spot. Integer (can be negative).
+ *   5 - Y: y coordinate of the spot. Integer (can be negative).
+ *   6 - Index: positive integer. No indexing should have a value of 1.
+ *   7 - Read Number: 1 for single reads; 1 or 2 for paired ends.
+ *   8 - Sequence (BASES)
+ *   9 - Quality: the calibrated quality string. (QUALITIES)
+ *   10 - Filter: Did the read pass filtering? 0 - No, 1 - Yes
+ * 
+ */
+int fastq_parse_qseq_read(FastqRead *read, gzFile f) {
+  size_t qual_len;
+  static char buf[FASTQ_MAX_LINE];
+  int index, read_num, filter, assigned;
+
+  read->status = FASTQ_OK;
+  
+  read->line1[0] = '\0';
+  read->line3[0] = '\0';
+
+  if(gzgets(f, buf, FASTQ_MAX_LINE) == NULL) {
+    read->status = FASTQ_END;
+    read->line2[0] = '\0';
+    read->line4[0] = '\0';
+  }
+
+  /* Parse qseq line.
+   * Note that sequence and quality strings are put into line2 and line4,
+   * because this corresponds to where they appear in a fastq record
+   */
+  assigned = sscanf(buf, "%s %d %d %d %d %d %d %d %s %s %d", 
+		    read->machine,
+		    &read->run_num,
+		    &read->lane,
+		    &read->tile,
+		    &read->x,
+		    &read->y,
+		    &index,
+		    &read_num,		    
+		    read->line2,
+		    read->line4,
+		    &filter);
+
+  if(assigned != 11) {
+    /* failed to completely parse header */
+    my_warn("%s:%d: could only parse %d out of 11 expected fields",
+	    __FILE__, __LINE__, assigned);
+    read->status = FASTQ_ERR;
+  }
+		    
+
+  /* check length of read and quality */
+  read->read_len = strlen(read->line2);
+  qual_len = strlen(read->line4);
+  
+  if(read->read_len < 1) {
+    if(fastq_warn_count < FASTQ_MAX_WARN) {
+      fastq_warn_count += 1;
+      my_warn("%s:%d: read has no bases\n", __FILE__, __LINE__);
+    }
+    return read->status;
+  }
+
+  /* does length of quality scores match read length? */
+  if(read->read_len != qual_len) {
+    if(fastq_warn_count < FASTQ_MAX_WARN) {
+      fastq_warn_count += 1;
+      my_warn("%s:%d: read len (%ld) does not match quality score len (%ld)",
+	      __FILE__, __LINE__, read->read_len, qual_len);
+    }
+    read->status = FASTQ_ERR;
+    return read->status;
+  }
+
 
   check_seq(read);
   check_qual(read);
