@@ -25,6 +25,42 @@ int ambi_has_ambi(unsigned char *nucs, int len) {
 }
 
 
+/**
+ * given two nucleotide codes, return single nucleotide 
+ * ambiguity code that represents both nucleotides
+ */
+unsigned char ambi_from_nucs(const unsigned char allele1, 
+			     const unsigned char allele2) {
+
+  switch(allele1){
+  case(NUC_A):
+    if(allele2 == NUC_C) return NUC_M;
+    if(allele2 == NUC_G) return NUC_R;
+    if(allele2 == NUC_T) return NUC_W;
+    break;
+  case(NUC_C):
+    if(allele2 == NUC_A) return NUC_M;
+    if(allele2 == NUC_G) return NUC_S;
+    if(allele2 == NUC_T) return NUC_Y;
+    break;
+  case(NUC_G):
+    if(allele2 == NUC_A) return NUC_R;
+    if(allele2 == NUC_C) return NUC_S;
+    if(allele2 == NUC_T) return NUC_K;
+    break;
+  case(NUC_T):
+    if(allele2 == NUC_A) return NUC_W;
+    if(allele2 == NUC_C) return NUC_Y;
+    if(allele2 == NUC_G) return NUC_K;
+   break;
+  default:
+    my_warn("ambiguity code for alleles %c/%c unknown",
+	    nuc_id_to_char(allele1), nuc_id_to_char(allele2));
+  }
+
+  return NUC_N;
+}
+
 
 /**
  * Given an ambiguous nucleotide, provides two non-ambiguous nucleotides
@@ -63,6 +99,7 @@ void ambi_get_nucs(unsigned char ambi_code, unsigned char *nuc1,
     my_err("%s:%d: unknown ambiguity code %d", __FILE__, __LINE__, ambi_code);
   }
 }
+
  
 
 

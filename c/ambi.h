@@ -17,4 +17,8 @@ int ambi_resolve(unsigned char *nucs, int len,
 int ambi_nucs_match(unsigned char nuc1, unsigned char nuc2);
 
 
+unsigned char ambi_from_nucs(const unsigned char allele1, 
+			     const unsigned char allele2);
+
+
 #endif

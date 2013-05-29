@@ -8,10 +8,17 @@ GLIB_FLAGS=`pkg-config --cflags --libs glib-2.0`
 
 objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o fastq.o seed_finder.o
 
-default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq test_kmer test_ambi
+default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq test_kmer mark_snps test_ambi
 
 $(objects): %.o: %.c %.h
 	$(CC) -c $(CFLAGS) $< -o $@
+
+
+mark_snps.o: mark_snps.c
+	$(CC) -c $(CFLAGS) -o mark_snps.o mark_snps.c
+
+mark_snps: $(objects) mark_snps.o
+	$(CC) $(LFLAGS) -o mark_snps mark_snps.o $(objects)
 
 
 build_seed_index.o: build_seed_index.c
@@ -19,8 +26,6 @@ build_seed_index.o: build_seed_index.c
 
 build_seed_index: $(objects) build_seed_index.o
 	$(CC) $(LFLAGS) -o build_seed_index build_seed_index.o $(objects)
-
-
 
 
 calc_mapping_uniqueness.o: calc_mapping_uniqueness.c
@@ -52,4 +57,4 @@ test_ambi: $(objects) test_ambi.o
 
 
 clean:
-	rm -f $(objects) build_seed_index test_kmer test_ambi calc_mapping_uniqueness map_fastq
+	rm -f $(objects) build_seed_index test_kmer test_ambi calc_mapping_uniqueness map_fastq mark_snps

@@ -31,9 +31,9 @@ def get_ambi_code(allele1, allele2):
         elif allele2 == "T":
             return "W"
         else:
-            return "N"
             sys.stderr.write("ambiguity code for alleles %s/%s unknown"
                              (allele1, allele2))
+            return "N"
         
     elif allele1 == "C":
         if allele2 == "A":
@@ -42,11 +42,11 @@ def get_ambi_code(allele1, allele2):
             return "S"
         elif allele2 == "T":
             return "Y"
-        else:
-            return "N"
+        else:            
             sys.stderr.write("ambiguity code for alleles %s/%s unknown\n" %
                              (allele1, allele2))
-
+            return "N"
+L
     elif allele1 == "G":
         if allele2 == "A":
             return "R"
