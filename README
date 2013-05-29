@@ -1,4 +1,42 @@
----------------------------------------------------
+mcmapper - software for unbiased read mapping
+======================================================================
+
+
+Introduction
+------------
+This repository contains software for unbiased read-mapping. By
+"unbiased", we mean that known SNPs are taken into account when
+mapping reads to the genome and when computing mappability
+(i.e. determining whether reads from a genomic location would map
+uniquely back to the genome).
+
+This softare is especially useful when performing tests for
+allele-specific expression. These tests tend to be very sensitive to
+mapping bias, which cannot be overcome simply by masking SNPs and
+using a conventional read mapper (see Degner et al. 2009).
+
+To perform unbiased read-mapping, perform the following steps,
+described in detail below:
+  1. Mark-up a reference genome with known SNPs
+  2. Build a seed index for the marked-up reference genome
+  3. Calculate the mappability of each position in the genome
+  4. Map reads to the genome
+  5. Merge mapped read files, sort and discard duplicates (if desired)
+  6. Filter mapped reads for mappability and indel overlap etc.
+
+
+
+0. Compiling / Installing
+-------------------------
+- depends on genome library
+- download from git
+- compile
+- add to LD_LIBRARY_PATH
+
+
+
+1. Marking up reference genome with SNPs
+-----------------------------------------
 mark_fasta_SNPs.py
 
 Markup a genome sequence with ambiguity characters representing the
@@ -16,19 +54,23 @@ Example:
   python mark_fasta_SNPs.py ~/data/hg18/seq_with_snps
 
 
---------------------------------------------------
+
+2. Builing a seed index
+-----------------------
 build_seed_index
 
 Create a binary file that contains genomic positions of seed
 matches. This only needs to be done once for a seed of a given length
 (and a given genome with SNPs). For example, the following command
-builds an index table of 13bp seeds:
+builds an index table of 13 bp seeds:
 
 Exmaple:
   ./build_seed_index 13 chromInfo.txt seed_idx.13.gz ~/data/hg18/seq_with_snps/chr*.fa.gz
 
 
---------------------------------------------------
+
+3. Calculating mappability
+--------------------------
 calc_mapping_uniqueness
 
 Calculate mapping uniqueness of reads starting at every possible
@@ -60,14 +102,15 @@ Example:
   ./calc_mapping_uniqueness /data/share/10_IND_v2/mapper/input_files/seed_idx.13bp.hg18.gz /data/share/10_IND_v2/mapper/input_files/chromInfo.hg18.txt 36 0 /data/share/10_IND_v2/mapper/mappability/36bp/0_mismatch /data/share/10_IND_v2/mapper/input_files/hg18_with_snps/chr*.fa.gz
 
 
---------------------------------------------------
 load_mapping_uniqueness.sh
 
 Convert the mapping uniqueness wiggle files to HDF5 format.  Edit the
 script load_mapping_uniqueness.sh, which calls the create_track.py
 script that actually creates the HDF5 files.
 
---------------------------------------------------
+
+4. Mapping Reads
+----------------
 map_fastq
 
 Map all reads in a fastq file to the genome. This program assigns each
@@ -123,7 +166,10 @@ Example:
 To run a lot of mapping jobs on the cluster use a submission script
 like the one here: sh/map_reads.sh
 
---------------------------------
+
+
+5. Merging, sorting and removing duplicate mapped reads
+-------------------------------------------------------
 merge_sort_rmdup.sh
 
 This script (written by Bryce):
@@ -131,7 +177,10 @@ This script (written by Bryce):
   - sorts mapped reads
   - filters duplicate mapped reads
 
---------------------------------
+
+
+6. Filtering mapped reads
+-------------------------
 filter_mappability_indels.py
 
 Filter reads that:
@@ -142,10 +191,3 @@ Filter reads that:
 Can run this script on cluster using: submit_filter_mappability_indels.sh
 
 
-
---------------------------------
-TODO
-- make all data count HDF5 files
-- update het probs
---- Potentially map and use all DNase and MNase reads too
-- create haplotype read count files
