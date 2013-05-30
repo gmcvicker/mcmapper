@@ -1,85 +1,185 @@
-mcmapper - software for unbiased read mapping
-======================================================================
-
-
 Introduction
-------------
-This repository contains software for unbiased read-mapping. By
-"unbiased", we mean that known SNPs are taken into account when
-mapping reads to the genome and when computing mappability
-(i.e. determining whether reads from a genomic location would map
-uniquely back to the genome).
+============
 
-This softare is especially useful when performing tests for
-allele-specific expression. These tests tend to be very sensitive to
-mapping bias, which cannot be overcome simply by masking SNPs and
-using a conventional read mapper (see Degner et al. 2009).
+This repository contains the 'mcmapper' software tools for unbiased
+read-mapping. By unbiased, we mean that known SNPs are taken into
+account when mapping reads to the genome and when computing
+mappability (i.e. whether reads originating from a genomic location
+would map uniquely back to the genome). Other mapping tools do not
+typically take into account polymorphisms and introduce several
+biases:
 
-To perform unbiased read-mapping, perform the following steps,
-described in detail below:
+ - Reads are less likely to map if they contain non-reference
+   allele(s) especially if the reads also contain sequencing
+   errors. This means that mapped reads will more often match the
+   reference allele than the non-reference allele.
+
+ - Reads with non-reference alleles may map to the incorrect genomic
+   locations (with a similar sequence that better-matches the
+   non-reference allele).
+
+ - Reads that map uniquely to the reference genome may not map
+   uniquely once polymorphisms are accounted for.
+
+ - Mappability calculations do not typically consider that reads
+   containing the non-reference allele may not map uniquely even when
+   those containing the reference allele do.
+
+These biases are especially problematic for tests of allele-specific
+expression, which look for differences in the number of mapped reads
+that match each allele. These tests are very sensitive to mapping bias
+and many false positives are introduced if it is not accounted
+for. This bias cannot simply be overcome by masking SNPs and using a
+conventional read mapper. This is described in detail by Degner et
+al. 2009.
+
+To perform unbiased read-mapping using this software, perform the 
+following steps (these are described in detail below):
   1. Mark-up a reference genome with known SNPs
   2. Build a seed index for the marked-up reference genome
   3. Calculate the mappability of each position in the genome
   4. Map reads to the genome
-  5. Merge mapped read files, sort and discard duplicates (if desired)
-  6. Filter mapped reads for mappability and indel overlap etc.
+  5. If desired, merge mapped read files, sort and discard duplicates
+  6. Filter mapped reads for mappability and indel overlap
 
 
 
 0. Compiling / Installing
--------------------------
-- depends on genome library
-- download from git
-- compile
-- add to LD_LIBRARY_PATH
+=========================
+
+libgenome:
+----------
+mcmapper depends on a software library called 'libgenome'. First
+obtain the latest version of the libgenome library from github
+(https://github.com/gmcvicker/genome)
+
+This library requires SCons to be built (I would like to strip out
+this dependency in the future). Download and install SCons if it is
+not already installed on your system (http://www.scons.org/).
+
+Now compile libgenome:
+  cd genome/c
+  scons
+
+This will create a shared library file in the directory
+genome/c/lib. On a UNIX system this will be named something like
+"libgenome.so", on MacOS X it may have an extension like ".dylib"
+instead of ".so".
+
+mcmapper
+--------
+
+If you have not already done so, download the latest version of
+mcmapper from github:
+
+  https://github.com/gmcvicker/mcmapper
+
+Edit mcmapper/c/Makefile so that the LIBGENOME line points to the
+directory containing the libgenome library compiled above.
+
+Compile the code: 
+  cd mcmapper/c
+  make
 
 
 
-1. Marking up reference genome with SNPs
------------------------------------------
-mark_fasta_SNPs.py
+1. Mark up a reference genome with SNPs
+=======================================
 
-Markup a genome sequence with ambiguity characters representing the
-locations and alleles of every SNP. This script is currently written
-in python and has hardcoded paths to HDF5 files containing the hg18
-genome sequence and the locations of all 1000 genomes phase1 SNPs. An
-output directory must be provided to the script. The script writes a
-single ambiguity-code containing fasta file for each
-chromosome. Currently indels are ignored.
+The provided C program 'mark_snps' can be used to markup a reference
+genome sequence so that it contains ambiguity characters representing
+known SNPs. For example positions with SNPs with alleles A and T will
+be changed to 'W'.
 
-This program should probably be re-written to directly use 
-FASTA files and a SNP list from 1000 genomes or dbSNP.
+The mark_snps program takes three positional arguments:
+ ./mark_snps <input.fa.gz> <output.fa.gz> <snp_file.legend.gz>
 
-Example:
-  python mark_fasta_SNPs.py ~/data/hg18/seq_with_snps
+The first argument is a FASTA file, which contains the reference
+sequence for a single chromosome.
+
+The second argument is a path to where the new, marked-up reference
+sequence should be written (the program will complain if the file
+already exists).
+
+The third argument is a path to a file containing the SNPs for
+this chromosome. The SNPs are expected to be in the 'legend'
+format used by IMPUTE. Legend files containing 1000 Genomes 
+SNPs can be downloaded from: 
+     http://mathgen.stats.ox.ac.uk/impute/impute_v2.html#reference
+
+The SNPs do not have to strictly follow legend format. Any file that
+contains the chromosome position (with first base of chromosome
+numbered 1) in the second column and alleles in the third and fourth
+columns will do. The first line in the SNP input file is assumed to be
+a header line and is ignored.
+
+WARNING: The markup and mapping programs currently ignore indels even
+though they are a major source of mapping bias. To account for this,
+we filter out all reads that overlap indels. This is described in
+section 6 below.
+
+We provide a wrapper shell script mcmapper/sh/mark_all_scripts.sh to
+run the markup program across all chromosomes. You should be able
+to modify this script to suit your needs (or to write a similar
+script from scratch).
 
 
 
-2. Builing a seed index
------------------------
-build_seed_index
+2. Build a seed index
+=====================
 
-Create a binary file that contains genomic positions of seed
-matches. This only needs to be done once for a seed of a given length
-(and a given genome with SNPs). For example, the following command
-builds an index table of 13 bp seeds:
+The mapper requires a compressed binary seed index file, which
+provides the genomic positions of seed matches. The provided C program
+'build_seed_index' is used to build the seed index file. This only
+needs to be done once for a seed of a given length (and for a given
+SNP-marked genome).
+
+I recommend using 12 or 13bp seeds. This program should be run on a
+machine with at least 16G of RAM.
+
+This program takes a minimum of 4 positional arguments:
+   ./build_seed_index <seed_len> <chrom_info.txt> \ 
+       <output_seed_index> <ref_fasta1> <ref_fasta2> ...
+
+
+The first argument is the length of seed to use (in basepairs). I
+recommend 12 or 13.
+
+The second argument is the path to a 'chromInfo.txt' file containing
+the names and lengths of the chromosomes. This file can be downloaded
+from the UCSC genome browser. For hg19 the file is available here:
+     http://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/
+
+The third argument is the path to the file where the new seed index
+table should be written.
+
+The remaining arguments are to fastq files containing all of the
+chromosomes that are specified in the chromInfo.txt file. Note that
+these files should have the SNPs marked as described in section 1
+above.
 
 Exmaple:
-  ./build_seed_index 13 chromInfo.txt seed_idx.13.gz ~/data/hg18/seq_with_snps/chr*.fa.gz
+  ./build_seed_index 13 chromInfo.txt seed_idx.13.gz \
+       ~/hg19/seq_with_snps/chr*.fa.gz
 
 
 
-3. Calculating mappability
---------------------------
-calc_mapping_uniqueness
+3. Calculate mappability
+========================
 
-Calculate mapping uniqueness of reads starting at every possible
-genomic position using the program calc_mapping_uniqueness. This needs
-to be done once for each read length. This program writes a single
-wiggle file per chromosome containing the following integer codes for
-reads starting at each position:
+The provided 'calc_mapping_uniqueness' program is used to calculate
+the mapping uniqueness of reads starting at every possible genomic
+position. It is not necessary to run this program before mapping
+reads. The output from this program is used to remove biases when
+performing post-mapping filtering, which is described in section 6
+below.
 
- 0 - does not map (contains N, or overhangs chromosome end)
+This program only needs to be run once for each read length that you
+plan to use. The program writes a single wiggle file per chromosome
+containing the following integer codes for reads starting at each
+position:
+
+ 0 - does not map (or contains N, or overhangs chromosome end)
  1 - maps uniquely
  2 - maps to multiple locations
 
@@ -93,101 +193,149 @@ The program arguments are:
   1  path to seed table created by build_seed_index
   2  path to chromInfo.txt file giving chromosome names and lengths
   3  length of reads in bp
-  4  number of allowed mismatches (0 or 1)
+  4  number of allowed mismatches
   5  output directory to write wiggle files to
-  6+ fasta files containing genome sequence with 
+  6+ fasta files containing genome sequence with
      ambiguity codes representing SNPs
 
-Example:
-  ./calc_mapping_uniqueness /data/share/10_IND_v2/mapper/input_files/seed_idx.13bp.hg18.gz /data/share/10_IND_v2/mapper/input_files/chromInfo.hg18.txt 36 0 /data/share/10_IND_v2/mapper/mappability/36bp/0_mismatch /data/share/10_IND_v2/mapper/input_files/hg18_with_snps/chr*.fa.gz
+While you can allow variable numbers of mismatches I recommend setting
+this to 0, because of the way the mapper works (described in section 4
+below).
+
+Here is an example of running this program to calculate mappability of
+36bp reads:
+  ./calc_mapping_uniqueness seed_idx.13.gz chromInfo.txt 36 \
+         0 mappability36/ ~/hg19/seq_with_snps/chr*.fa.gz
 
 
-load_mapping_uniqueness.sh
 
-Convert the mapping uniqueness wiggle files to HDF5 format.  Edit the
-script load_mapping_uniqueness.sh, which calls the create_track.py
-script that actually creates the HDF5 files.
+4. Map Reads
+============
+
+The 'map_fastq' programs maps all reads in a fastq (or qseq) file to
+the genome.
+
+map_fastq takes several named arguments and flags followed by one or
+more fastq files (containing the SNP-marked reference sequence):
+
+./map_fastq OPTIONS <ref_fastq1.fa> [<ref_fasta2.fa> ...]
+  optional flags:
+    --fastq  read input file is fastq format (default)
+    --qseq   read input file is qseq format
+    --out_single  write output to single file and keep reads in the same
+                  order as input file (default)
+    --out_multi   write mapped reads to separate chromosome files and
+                  write unmapped and multi-mapped reads to their own files
+  required arguments:
+    --chrom_info <path>      file with chromosome names and lengths
+    --read_len <integer>     length of reads in input file
+    --max_mismatch <integer> maximum number of read/genome mismatches
+    --out_dir <path>         directory to write output to
+    --seed_index <path>      path to seed index for reference genome
+    --reads_file <path>      path to fastq or qseq file with reads to map
 
 
-4. Mapping Reads
-----------------
-map_fastq
-
-Map all reads in a fastq file to the genome. This program assigns each
-read the following mapping code:
-
+After mapping, each read is assiged the following mapping code:
   0 - does not map
   1 - maps uniquely
   2 - maps to multiple locations
 
-Reads are written to separate output files, depending on their
-status. Unmapped reads are written to 'unmapped.txt.gz',
-multiply-mapping reads are written to 'multi_mapped.txt.gz' and
-uniquely mapping reads are written to a single file per chromosome
-(e.g. chr1.mapped.txt.gz for reads that map uniquely to chr1).
+If the --out_multi flag is provided, reads are written to separate
+output files, depending on their status. Unmapped reads are written to
+'unmapped.txt.gz', multiply-mapping reads are written to
+'multi_mapped.txt.gz' and uniquely mapping reads are written to a
+single file per chromosome (e.g. chr1.mapped.txt.gz for reads that map
+uniquely to chr1). 
 
-A read is first mapped without allowing mismatches. If the read fails
-to map without mismatches, a second attempt is made to map the read,
-allowing a single mismatch. Known SNPs are taken into account when
-mapping--bases that match the reference or non-reference allele are
-not considered mismatches. Single mismatches are allowed (if the read
-initially fails to map) to avoid mapping bias introduced by unknown
-SNPs (e.g. private variants). Unfortunately unknown indels can still
-result in occasionally biased mapping. Reads that contain Ns are not
-mapped.
+Reads are mapped 'progressively'. First they are mapped allowing 0
+mismatches to the reference sequence. Then the number of allowed
+mismatches is increased until one of the following conditions is met:
+ - the read maps uniquely (mapping code 1)
+ - the read maps to multiple locations (mapping code 2)
+ - the number of allowed mismatches exceeds max_mismatch
 
-The program arguments are:
-  1  path to seed table created by build_seed_index
-  2  path to chromInfo.txt file giving chromosome names and lengths
-  3  path to fastq file (may be gzipped)
-  4  path to output directory
-  5+ fasta files containing genome sequence with 
-     ambiguity codes representing SNPs
+Known SNPs are taken into account when mapping: bases that match the
+reference or non-reference allele are not considered mismatches. I
+recommend allowing at least a single mismatch to avoid at least some
+of the mapping bias introduced by unknown SNPs (e.g. variants that are
+private to your sample). Unfortunately unknown indels can still result
+in occasionally biased mapping. Reads that contain Ns are not mapped.
 
-If a 13bp seed table is used, this program needs about 20Gb of memory
-to map reads to the human genome.
+Increasing the number of allowed mismatches increases the number of
+non-overlapping seeds that must be used to map each read. For this
+reason, (seed_len * (n_allowed_mismatches+1)) must be less than or
+equal to read_len (the program will complain if it is not). Allowing
+more mismatches will slow down the mapping.
+
+If a 13bp seed table is used, map_fastq will require about 15-20Gb of
+memory to map reads to the human genome.
 
 The output files have one read per line with the following
-space-delimited columns. Reads are reverse complemented if they mapped
-to the reverse strand so that the sequence can always be directly
+space-delimited columns. Reads are reverse complemented if they map to
+the reverse strand so that the sequence can always be directly
 compared to the forward strand of the genome.
+
   1 - read sequence (reverse complemented if read mapped to - strand)
   2 - chromosome name (or . if did not map)
   3 - read start position
-  4 - strand (+, -); for (-) strand reads, read has been reverse complemented
+  4 - strand (+, -); Note: for - strand reads, the read has been 
+      reverse complemented
   5 - mapping code (0, 1, 2) for unmapped, unique, multiple
-  6 - number of mismatches (0 or 1)
+  6 - number of mismatches
 
+I would like to add an option to write mapped reads in SAM or BAM, but
+I have not had time to implement this.
 
 Example:
-  ./map_fastq seed_idx.13.gz chromInfo.txt H3K4me1_18508.fastq.gz out/ ~/data/hg18/seq_with_snps/chr*.fa.gz
+  ./map_fastq --seed_index seed_idx.13.gz \
+              --chrom_info chromInfo.txt \
+              --out_dir mapped_reads \
+              --read_len 36 --max_mismatch 1 \
+              --fastq --reads_file H3K4me1_18508.fastq.gz \
+              ~/hg19/seq_with_snps/chr*.fa.gz
 
 
-To run a lot of mapping jobs on the cluster use a submission script
-like the one here: sh/map_reads.sh
 
+5. Merge lanes, sort reads and remove duplicates
+================================================
 
+Usually it is desirable to remove "duplicate" reads that map to the
+same position and strant of the genome. This is because protocols such
+as ChIP-seq or RNA-seq typically contain a PCR step that introduces an
+amplification bias in the reads that are sequenced (some reads will
+appear many times simply because they amplified well). Unfortunately
+existing tools for removing duplicate reads (e.g. samtools rmdup)
+often keep only the highest scoring read. This introduces a consistent
+reference bias, because reads that match the reference genome will be
+preferentially retained.
 
-5. Merging, sorting and removing duplicate mapped reads
--------------------------------------------------------
-merge_sort_rmdup.sh
-
-This script (written by Bryce):
-  - merges lanes of mapped reads
-  - sorts mapped reads
-  - filters duplicate mapped reads
+We provide a short shell script 'mcmapper/sh/merge_sort_rmdup.sh' as
+an example of how to combine lanes, sort reads, and discard duplicates
+without reference bias. This script calls the provided python program
+rmdup.py, which discards duplicate reads randomly (without regard to
+mismatches).  Note that this script is just an example and contains
+several hardcoded paths and commands that are specific to our
+cluster. We would like to provide a more flexible program in the
+future, but in the meantime this script will need to be modified by
+you if you intend to use it.
 
 
 
 6. Filtering mapped reads
--------------------------
-filter_mappability_indels.py
+=========================
 
-Filter reads that:
-  - map to location where at least one allele maps to multiple locations
-  - overlap indels
-  - overlap SNPs with 'reference allele' that does not match reference
+Two final filtering steps must be performed to remove mapping bias:
+ 1. discard mapped reads that overlap known indels (these were not
+    accounted for by the mapper)
 
-Can run this script on cluster using: submit_filter_mappability_indels.sh
+ 2. discard reads that map to positions where both alleles are not
+    uniquely mappable (using the mappability wiggle files created in
+    section 3 above)
+
+The scripts that we use for this purpose have several dependencies
+that make them difficult to use externally. We will provide more
+flexible scripts in the future. For now I think it would be easiest
+to write your own scripts to handle this filtering. You can use the
+python script 'filter_mappability_indels.py' as a starting point.
 
 

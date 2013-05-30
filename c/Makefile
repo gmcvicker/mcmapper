@@ -1,14 +1,20 @@
 
-CFLAGS=-Wall -O3 -I../../genome/c/lib -g
-LFLAGS=-lz -lgenome -L../../genome/c/lib
+#
+# edit the following line to point to the location of the libgenome
+# library. The code for this library can be downloaded from
+# github: https://github.com/gmcvicker/genome
+# 
+LIBGENOME=../../genome/c/lib
+
+CFLAGS=-Wall -O3 -I$(LIBGENOME) -g
+LFLAGS=-lz -lgenome -L$(LIBGENOME)
 CC=gcc
 
-# not sure if GLIB will be needed yet or not...
-GLIB_FLAGS=`pkg-config --cflags --libs glib-2.0`
+# GLIB_FLAGS=`pkg-config --cflags --libs glib-2.0`
 
 objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o fastq.o seed_finder.o
 
-default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq test_kmer mark_snps test_ambi
+default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq mark_snps 
 
 $(objects): %.o: %.c %.h
 	$(CC) -c $(CFLAGS) $< -o $@
