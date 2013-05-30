@@ -278,8 +278,7 @@ compared to the forward strand of the genome.
   1 - read sequence (reverse complemented if read mapped to - strand)
   2 - chromosome name (or . if did not map)
   3 - read start position
-  4 - strand (+, -); Note: for - strand reads, the read has been 
-      reverse complemented
+  4 - strand (+, -)
   5 - mapping code (0, 1, 2) for unmapped, unique, multiple
   6 - number of mismatches
 
@@ -300,14 +299,13 @@ Example:
 ================================================
 
 Usually it is desirable to remove "duplicate" reads that map to the
-same position and strant of the genome. This is because protocols such
-as ChIP-seq or RNA-seq typically contain a PCR step that introduces an
-amplification bias in the reads that are sequenced (some reads will
-appear many times simply because they amplified well). Unfortunately
-existing tools for removing duplicate reads (e.g. samtools rmdup)
-often keep only the highest scoring read. This introduces a consistent
-reference bias, because reads that match the reference genome will be
-preferentially retained.
+same position and strand of the genome. This is because protocols such
+as ChIP-seq or RNA-seq oftain contain a PCR step that introduces
+amplification bias (some reads are sequenced many times because they
+amplified well). Unfortunately existing tools for removing duplicate
+reads (e.g. samtools rmdup) usually keep the highest scoring
+read. This introduces a consistent reference bias, because reads that
+match the reference genome will be preferentially retained.
 
 We provide a short shell script 'mcmapper/sh/merge_sort_rmdup.sh' as
 an example of how to combine lanes, sort reads, and discard duplicates
