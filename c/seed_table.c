@@ -35,9 +35,11 @@ SeedTable *seed_table_new(int seed_len) {
   seed_tab->match_buf = NULL;
 
   /* buffer to hold unambiguous nucleotide arrays */
-  seed_tab->unambig_nucs = my_new(unsigned char *, SEED_TABLE_MAX_UNAMBIG);
+  seed_tab->unambig_nucs = my_new(unsigned char *, 
+				  SEED_TABLE_MAX_UNAMBIG);
   for(i = 0; i < SEED_TABLE_MAX_UNAMBIG; i++) {
-    seed_tab->unambig_nucs[i] = my_new(unsigned char, seed_tab->seed_len);
+    seed_tab->unambig_nucs[i] = my_new(unsigned char, 
+				       seed_tab->seed_len);
   }
   
   return seed_tab;
@@ -85,7 +87,7 @@ void seed_table_count_match(SeedTable *seed_tab, unsigned char *nucs) {
 			       SEED_TABLE_MAX_UNAMBIG);
 
       if(n_unambig == 0) {
-	fprintf(stderr, "seed contains too many ambiguous nucleotides");
+	my_warn("seed contains too many ambiguous nucleotides");
 	return;
       }
       unambig = seed_tab->unambig_nucs;
@@ -163,7 +165,7 @@ void seed_table_add_match(SeedTable *seed_tab, unsigned int offset,
 			       SEED_TABLE_MAX_UNAMBIG);
 
       if(n_unambig == 0) {
-	fprintf(stderr, "seed contains too many ambiguous nucleotides");
+	my_warn("seed contains too many ambiguous nucleotides");
 	return;
       }
       unambig = seed_tab->unambig_nucs;

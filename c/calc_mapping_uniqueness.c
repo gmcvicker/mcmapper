@@ -64,8 +64,9 @@ void map_read(gzFile out_file, Mapper *mapper, MapRead *read,
   if(read->map_code == MAP_CODE_NONE) {
     if(!read->has_n) {
       /* samity check: read must map at least once */
-      my_err("%s:%d: read from genomic offset %u does not map back "
-	     "to genome", __FILE__, __LINE__, read_start);	
+      my_warn("%s:%d: could not map read from genomic offset %u back "
+	      "to genome--probably too many ambiguous nucleotides", 
+	      __FILE__, __LINE__, read_start);
     }
   }
   

@@ -7,7 +7,13 @@
  * table is correct.
  */
 #define SEED_TABLE_MAGIC 457401295
-#define SEED_TABLE_MAX_UNAMBIG 128
+
+
+/* Maximum number of unambiguous seeds that we resolve from a seed
+ * containing an ambiguity code. If this value is 8192=2^13, seed can
+ * contain up to 13 ambiguity codes.
+ */
+#define SEED_TABLE_MAX_UNAMBIG 8192
 
 
 typedef struct {
@@ -36,7 +42,9 @@ typedef struct {
   unsigned int n_match;  /* total number of genomic matches */
   unsigned int n_kmer;  /* number of unambiguous kmers from seed */
 
-  /* ids of kmers, used to lookup genomic locations of matches in seed table */
+  /* ids of kmers, used to lookup genomic locations of 
+   * matches in seed table 
+   */
   unsigned int kmer_ids[SEED_TABLE_MAX_UNAMBIG];
 } SeedMatch;
 
