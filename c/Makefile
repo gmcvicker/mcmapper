@@ -14,7 +14,7 @@ CC=gcc
 
 objects=chr_table.o kmer.o seed_table.o ambi.o mapper.o fastq.o seed_finder.o
 
-default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq mark_snps 
+default: $(objects) build_seed_index calc_mapping_uniqueness map_fastq mark_snps make_chrom_info
 
 $(objects): %.o: %.c %.h
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -25,6 +25,13 @@ mark_snps.o: mark_snps.c
 
 mark_snps: $(objects) mark_snps.o
 	$(CC) $(LFLAGS) -o mark_snps mark_snps.o $(objects)
+
+
+make_chrom_info.o: make_chrom_info.c
+	$(CC) -c $(CFLAGS) -o make_chrom_info.o make_chrom_info.c
+
+make_chrom_info: $(objects) make_chrom_info.o
+	$(CC) $(LFLAGS) -o make_chrom_info make_chrom_info.o $(objects)
 
 
 build_seed_index.o: build_seed_index.c
@@ -60,6 +67,12 @@ test_ambi.o: test_ambi.c
 
 test_ambi: $(objects) test_ambi.o
 	$(CC) $(LFLAGS) -o test_ambi test_ambi.o $(objects)
+
+test_fasta_write.o: test_fasta_write.c
+	$(CC) -c $(CFLAGS) -o test_fasta_write.o test_fasta_write.c
+
+test_fasta_write: $(objects) test_fasta_write.o
+	$(CC) $(LFLAGS) -o test_fasta_write test_fasta_write.o $(objects)
 
 
 clean:
